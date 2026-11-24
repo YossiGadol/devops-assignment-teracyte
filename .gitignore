@@ -11,3 +11,4 @@ data/
 *.tfstate.*
 *.tfplan
 *.plan
+.idea/
