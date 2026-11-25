@@ -1,0 +1,14 @@
+{
+  "schema": "model-policy-v1",
+  "models": {
+    "toy-linear": {
+      "format": "toy-linear-v1",
+      "adapter": "examples.model_lifecycle.train",
+      "dataset": "synthetic-linear-v1",
+      "seed": 2026,
+      "max_test_mse": 0.001,
+      "max_mse_to_baseline_ratio": 0.01,
+      "reevaluation_tolerance": 1e-9
+    }
+  }
+}

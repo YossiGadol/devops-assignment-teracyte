@@ -167,6 +167,9 @@ def verify_results(experiment_id: str, expected_sha256: str, postgres_url: str, 
     experiment = experiment or {}
     checks.check("mongo: status COMPLETED", experiment.get("status") == "COMPLETED", f"found {experiment.get('status')!r}")
     checks.check("mongo: result_count == 5", experiment.get("result_count") == 5, f"found {experiment.get('result_count')!r}")
+    recorded = (experiment.get("model") or {})
+    checks.check("mongo: recorded model digest matches expected", recorded.get("sha256") == expected_sha256,
+                 f"found {recorded.get('model')!r} {recorded.get('version')!r} {recorded.get('sha256')!r}")
     return checks
 
 
@@ -181,8 +184,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--expected-model-sha256",
         default=os.getenv("EXPECTED_MODEL_SHA256"),
-        help="expected model digest (env EXPECTED_MODEL_SHA256); default: SHA-256 of the fixture model, "
-             "computed before the pipeline runs",
+        help="expected model digest (env EXPECTED_MODEL_SHA256); default: the digest in MODEL_SELECTION_FILE "
+             "if set, else SHA-256 of the fixture model, computed before the pipeline runs",
     )
     return parser.parse_args()
 
@@ -203,6 +206,13 @@ def main() -> int:
         if args.expected_model_sha256:
             expected_sha256 = args.expected_model_sha256.strip().lower()
             source = "supplied"
+        elif os.getenv("MODEL_SELECTION_FILE", "").strip():
+            # The approved digest comes from the channel record, never from the artifact or output rows.
+            from model_handoff.consumer import read_selection
+
+            selection = read_selection(Path(os.environ["MODEL_SELECTION_FILE"].strip()))
+            expected_sha256 = selection["sha256"]
+            source = f"selected {selection['model']} {selection['version']} via {os.environ['MODEL_SELECTION_FILE']}"
         else:
             expected_sha256 = sha256_file(Path(manifest["model_path"]))
             source = f"computed from fixture {manifest['model_path']}"

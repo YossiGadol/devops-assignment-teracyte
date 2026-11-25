@@ -58,7 +58,8 @@ def get_results(experiment_id: str):
         mongo.close()
     if document is None:
         raise HTTPException(status_code=404, detail="unknown experiment")
-    return {"experiment_id": experiment_id, "status": document["status"], "results": read_results(experiment_id) if document["status"] == "COMPLETED" else []}
+    return {"experiment_id": experiment_id, "status": document["status"], "model": document.get("model"),
+            "results": read_results(experiment_id) if document["status"] == "COMPLETED" else []}
 
 
 @app.post("/experiments/{experiment_id}/exports", status_code=202)

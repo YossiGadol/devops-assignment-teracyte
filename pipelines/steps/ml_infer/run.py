@@ -17,6 +17,7 @@ def infer_image(
     preprocess_path: Path,
     model_path: Path,
     output_path: Path,
+    expected_sha256: str | None = None,
 ) -> dict:
     started = time.perf_counter()
     preprocessing = json.loads(preprocess_path.read_text())
@@ -26,6 +27,8 @@ def infer_image(
     if not weights:
         raise ValueError("model artifact is empty")
     model_sha256 = hashlib.sha256(weights).hexdigest()
+    if expected_sha256 and model_sha256 != expected_sha256.lower():
+        raise ValueError(f"model artifact digest {model_sha256} does not match selected {expected_sha256}")
     with Image.open(image_path) as source, Image.open(preprocessing["mask_path"]) as mask_source:
         pixels = np.asarray(source.convert("L"), dtype=np.uint8)
         mask = np.asarray(mask_source.convert("L"), dtype=np.uint8) > 0
@@ -53,8 +56,9 @@ def main() -> None:
     parser.add_argument("--preprocess", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--expected-sha256", help="fail if the artifact bytes do not match the selected digest")
     args = parser.parse_args()
-    print(json.dumps(infer_image(args.experiment_id, args.image_id, args.image_path, args.preprocess, args.model_path, args.output)))
+    print(json.dumps(infer_image(args.experiment_id, args.image_id, args.image_path, args.preprocess, args.model_path, args.output, args.expected_sha256)))
 
 
 if __name__ == "__main__":

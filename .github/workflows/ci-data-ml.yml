@@ -1,0 +1,148 @@
+# Data/ML team delivery: notebook/training/evaluation assets and model candidates.
+# Also runs for shared handoff-contract/runtime changes (ci-core-dev.yml runs for those too).
+#
+#   push / pull_request (training assets changed) -> train, evaluate, publish candidate, gate it
+#   workflow_dispatch with source_run_id          -> MODEL-ONLY: validate/publish an existing
+#                                                    candidate artifact; no training, no API build
+#
+# Publication never selects a model for production: the job asserts the production channel is
+# unchanged. Promotion is a separate, explicit `model_handoff promote` (see tasks/support-teams).
+name: ci-data-ml
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'examples/model_lifecycle/**'
+      - 'model_handoff/**'
+      - 'tests/test_model_lifecycle.py'
+      - 'tests/test_model_handoff.py'
+      - 'requirements-local.txt'
+      - 'Dockerfile'
+      - '.github/workflows/ci-data-ml.yml'
+  pull_request:
+    paths:
+      - 'examples/model_lifecycle/**'
+      - 'model_handoff/**'
+      - 'tests/test_model_lifecycle.py'
+      - 'tests/test_model_handoff.py'
+      - 'requirements-local.txt'
+      - 'Dockerfile'
+      - '.github/workflows/ci-data-ml.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Candidate version to publish (default: ci-<run number>)"
+        required: false
+      source_run_id:
+        description: "Model-only: run ID of an earlier ci-data-ml run whose model-candidate artifact to validate"
+        required: false
+      expected_sha256:
+        description: "Model-only: digest the producer announced for that candidate"
+        required: false
+
+permissions:
+  contents: read
+  actions: read   # download a candidate artifact from another run (model-only path)
+
+defaults:
+  run:
+    shell: bash   # explicit => bash -eo pipefail, so `cmd | tee log` still fails the step
+
+env:
+  PYTHON_VERSION: "3.15"           # same interpreter as the shared image (uv:python3.15)
+  MODEL_REGISTRY_DIR: data/model-registry
+  VERSION: ${{ inputs.version || format('ci-{0}', github.run_number) }}
+  MODEL_ONLY: ${{ inputs.source_run_id != '' && inputs.source_run_id != null }}
+  TRAINING_IMAGE: github-hosted ubuntu-latest, uv-managed python 3.15
+  GIT_COMMIT: ${{ github.sha }}
+  RUN_DIR: data/model-lifecycle/runs/${{ inputs.version || format('ci-{0}', github.run_number) }}
+  CANDIDATES: data/model-registry/toy-linear/candidates
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Reproducible environment (pinned interpreter, requirements-local.txt)
+        run: |
+          mkdir -p logs
+          uv venv --python "$PYTHON_VERSION" .venv
+          uv pip install --python .venv -r requirements-local.txt
+          uv pip freeze --python .venv | tee logs/environment.txt
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Unit tests (supplied helpers + handoff gate)
+        run: python -m pytest -q tests/test_model_lifecycle.py tests/test_model_handoff.py 2>&1 | tee logs/unit-tests.log
+
+      - name: Train and evaluate (benchmark against the baseline)
+        if: env.MODEL_ONLY != 'true'
+        run: python -m model_handoff train --run-dir "$RUN_DIR" 2>&1 | tee logs/train.log
+
+      - name: "Model-only: fetch the existing candidate artifact"
+        if: env.MODEL_ONLY == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: model-candidate
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: incoming
+
+      - name: "Model-only: stage the candidate as a run directory"
+        if: env.MODEL_ONLY == 'true'
+        run: |
+          model=$(find incoming -path '*/candidates/*/model.json' | head -1)
+          test -n "$model" || { echo "no candidate model.json in artifact"; exit 2; }
+          src=$(dirname "$model")
+          mkdir -p "$RUN_DIR"
+          cp "$src/model.json" "$src/evaluation.json" "$RUN_DIR/"
+          jq '.training' "$src/handoff.json" > "$RUN_DIR/environment.json"
+
+      - name: Publish candidate (local directory registry)
+        run: python -m model_handoff publish --run-dir "$RUN_DIR" --version "$VERSION" 2>&1 | tee logs/publish.log
+
+      - name: Handoff gate - digest, consumer contract (supplied loader), evaluation thresholds
+        env:
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}   # via env, never inlined into the script
+        run: |
+          args=(accept --version "$VERSION")
+          if [ -n "$EXPECTED_SHA256" ]; then args+=(--expected-sha256 "$EXPECTED_SHA256"); fi
+          python -m model_handoff "${args[@]}" 2>&1 | tee logs/gate.log
+
+      - name: Negative control - a tampered copy must be rejected before acceptance
+        run: |
+          good="$CANDIDATES/$VERSION" bad="$CANDIDATES/$VERSION-tampered"
+          mkdir -p "$bad"
+          cp "$good/evaluation.json" "$bad/"
+          jq --arg v "$VERSION-tampered" '.version = $v' "$good/handoff.json" > "$bad/handoff.json"
+          jq '.intercept += 0.5' "$good/model.json" > "$bad/model.json"   # bytes differ from the published digest
+          set +e
+          python -m model_handoff accept --version "$VERSION-tampered" 2>&1 | tee logs/gate-tampered.log
+          status=${PIPESTATUS[0]}
+          set -e
+          [ "$status" -eq 1 ] || { echo "expected REJECTED (exit 1), got $status"; exit 1; }
+          if python -m model_handoff promote --version "$VERSION-tampered"; then echo "rejected candidate was promoted"; exit 1; fi
+          rm -rf "$bad" "$MODEL_REGISTRY_DIR/toy-linear/gate/$VERSION-tampered.json"
+
+      - name: Publication did not select the candidate for production
+        run: |
+          python -m model_handoff status | tee logs/status.log
+          test ! -e data/model-registry/toy-linear/channels/production.json
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: model-candidate
+          path: |
+            data/model-registry/toy-linear/candidates/
+            data/model-registry/toy-linear/gate/
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-data-ml-logs
+          path: logs/
+          retention-days: 14

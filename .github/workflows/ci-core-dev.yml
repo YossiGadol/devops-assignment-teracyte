@@ -1,0 +1,144 @@
+# Dev team delivery: API, Celery worker, production analysis steps, Terraform storage.
+# Also runs for shared code/runtime/handoff-contract changes (ci-data-ml.yml runs for those too).
+#
+# What runs depends on what changed (see the `changes` job):
+#   app / analysis / shared -> image build + unit tests (in the image)
+#   analysis / shared       -> pipeline E2E with the fixture model AND with a promoted toy model
+#                              (model-consumer compatibility: selection by config, digest recorded)
+#   terraform               -> fmt / init -backend=false / validate (no credentials, no plan/apply)
+name: ci-core-dev
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash   # explicit => bash -eo pipefail, so `cmd | tee log` still fails the step
+
+concurrency:
+  group: ci-core-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      analysis: ${{ steps.filter.outputs.analysis }}
+      shared: ${{ steps.filter.outputs.shared }}
+      terraform: ${{ steps.filter.outputs.terraform }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'services/**'
+            analysis:
+              - 'pipelines/**'
+              - 'scripts/**'
+              - 'tests/e2e_verify.py'
+              - 'tests/test_starter.py'
+              - 'tests/test_aggregation.py'
+              - 'run-experiment.sh'
+              - 'verify-experiment.sh'
+            shared:
+              - 'model_handoff/**'
+              - 'tests/test_model_handoff.py'
+              - 'examples/model_lifecycle/train.py'
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'compose.yaml'
+              - 'requirements-local.txt'
+              - 'build.sh'
+              - 'start.sh'
+              - 'stop.sh'
+              - 'model-handoff.sh'
+              - '.github/workflows/ci-core-dev.yml'
+            terraform:
+              - 'infra/**'
+
+  build-test-e2e:
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.app == 'true' || needs.changes.outputs.analysis == 'true' ||
+      needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BUILD_ATTESTATIONS: "false"   # default docker driver cannot attach SBOM/provenance on --load
+      BUILD_NO_CACHE: "false"
+      RUN_E2E: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.analysis == 'true' || needs.changes.outputs.shared == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p logs
+
+      - name: Build shared image (same script as local)
+        run: ./build.sh 2>&1 | tee logs/build.log
+
+      - name: Unit tests in the image (API, steps, aggregation, model handoff)
+        run: docker run --rm api-image uv run python -m pytest -q 2>&1 | tee logs/unit-tests.log
+
+      - name: Start stack
+        if: env.RUN_E2E == 'true'
+        run: ./start.sh 2>&1 | tee logs/start.log
+
+      - name: Pipeline E2E with fixture model
+        if: env.RUN_E2E == 'true'
+        run: ./verify-experiment.sh 2>&1 | tee logs/e2e-fixture.log
+
+      - name: Model-consumer compatibility - publish, gate and promote the toy model
+        if: env.RUN_E2E == 'true'
+        run: |
+          {
+            ./model-handoff.sh train   --run-dir data/model-lifecycle/runs/ci
+            ./model-handoff.sh publish --run-dir data/model-lifecycle/runs/ci --version ci-${{ github.run_number }}
+            ./model-handoff.sh accept  --version ci-${{ github.run_number }}
+            ./model-handoff.sh promote --version ci-${{ github.run_number }} --reason "ci consumer check"
+            ./model-handoff.sh resolve
+          } 2>&1 | tee logs/handoff.log
+
+      - name: Pipeline E2E with the selected model (digest must be recorded in results)
+        if: env.RUN_E2E == 'true'
+        env:
+          MODEL_SELECTION_FILE: /app/data/model-registry/toy-linear/channels/production.json
+        run: ./verify-experiment.sh 2>&1 | tee logs/e2e-selected.log
+
+      - name: Collect container logs
+        if: always() && env.RUN_E2E == 'true'
+        run: docker compose logs --no-color > logs/compose.log 2>&1 || true
+
+      - name: Stop stack
+        if: always() && env.RUN_E2E == 'true'
+        run: ./stop.sh || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-core-dev-logs
+          path: logs/
+          retention-days: 14
+
+  terraform:
+    needs: changes
+    if: needs.changes.outputs.terraform == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate

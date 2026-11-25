@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pymongo import MongoClient
 
+from model_handoff.consumer import resolve_model
 from scripts.generate_mock_data import generate_data
 
 
@@ -25,11 +26,17 @@ def main() -> None:
     if not manifest_path.exists():
         generate_data(data_dir)
     manifest = json.loads(manifest_path.read_text())
+    # MODEL_SELECTION_FILE selects a promoted release (digest-verified here, before any work);
+    # without it the generated fixture weights are used, as in the original starter.
+    model = resolve_model(manifest["model_path"])
+    print(json.dumps({"model_source": model["source"], "model": model["model"], "model_version": model["version"],
+                      "model_sha256": model["sha256"], "model_path": model["path"]}), flush=True)
     mongo_url = os.getenv("MONGO_URL", "mongodb://mongo:27017")
     with MongoClient(mongo_url) as mongo:
         mongo["experiments"]["experiments"].update_one(
             {"_id": args.experiment_id},
-            {"$set": {"image_ids": manifest["image_ids"], "status": "PENDING", "created_at": datetime.now(timezone.utc)},
+            {"$set": {"image_ids": manifest["image_ids"], "status": "PENDING", "created_at": datetime.now(timezone.utc),
+                      "model": {key: model[key] for key in ("source", "model", "version", "sha256")}},
              "$unset": {"completed_at": "", "result_count": ""}},
             upsert=True,
         )
@@ -47,7 +54,7 @@ def main() -> None:
         subprocess.run([
             sys.executable, "-m", "pipelines.steps.ml_infer.run", "--experiment-id", args.experiment_id,
             "--image-id", image_id, "--image-path", str(image_path),
-            "--preprocess", str(preprocess), "--model-path", manifest["model_path"],
+            "--preprocess", str(preprocess), "--model-path", model["path"], "--expected-sha256", model["sha256"],
             "--output", str(image_work / "inference.json"),
         ], cwd=ROOT, check=True)
     subprocess.run([

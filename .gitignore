@@ -12,3 +12,5 @@ data/
 *.tfplan
 *.plan
 .idea/
+logs/
+pyproject.toml

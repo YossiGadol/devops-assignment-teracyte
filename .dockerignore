@@ -2,3 +2,6 @@
 .venv/
 data/
 uv.lock
+logs/
+.github/
+pyproject.toml

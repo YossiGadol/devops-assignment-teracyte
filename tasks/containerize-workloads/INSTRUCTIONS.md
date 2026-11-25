@@ -1,4 +1,4 @@
-# How to run the containerized workloads
+## How to run the containerized workloads
 
 ### Requirements
 
@@ -20,6 +20,8 @@
 
 9. To run the analysis for a fresh experiment and verify its results end to end, execute:<br>`./verify-experiment.sh`<br>It exits nonzero on failure. See [verify-experiment/EVIDENCE.md](../verify-experiment/EVIDENCE.md) for options and exit codes.
 
+10. To train, publish, gate and promote a model and run the analysis with it, use `./model-handoff.sh` and `MODEL_SELECTION_FILE`. See [support-teams/EVIDENCE.md](../support-teams/EVIDENCE.md).
+
 ### Shutting down the containers
 
 To shut down the containers, execute the command:<br>`./stop.sh`
@@ -27,4 +29,9 @@ To shut down the containers, execute the command:<br>`./stop.sh`
 ### Data location
 
 The created data is stored in a persistent Docker Volume:
-`data-objects`
+`data-objects`; published models, gate records and channels are in `data-model-registry`.
+
+
+## Limitations
+* The built Docker Image is not pushed to a registry. This could be added very easily to the build script but skipped because the functionality of the demo will not benefit from it.
+* The containerization is implemented using Docker Compose, it is not recommended for production use, which should be implemented using Kubernetes.

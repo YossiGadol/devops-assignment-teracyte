@@ -23,4 +23,5 @@ elif ! docker image inspect api-image >/dev/null 2>&1; then
   "$SCRIPT_DIR/build.sh"
 fi
 
-docker compose up -d
+# --wait: return only when every service is healthy (scripts and CI run checks right after).
+docker compose up -d --wait

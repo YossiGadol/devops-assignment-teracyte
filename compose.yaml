@@ -5,6 +5,16 @@ volumes:
   model-lifecycle:
     driver: local
     name:   data-model-lifecycle
+  # Local stand-in for the model artifact bucket: published candidates, gate records, channels.
+  model-registry:
+    driver: local
+    name:   data-model-registry
+x-model-env: &model-env
+  MODEL_REGISTRY_DIR:   /app/data/model-registry
+  # Empty = fixture weights. Set (e.g. in .env) to select a promoted release for analysis:
+  # MODEL_SELECTION_FILE=/app/data/model-registry/toy-linear/channels/production.json
+  MODEL_SELECTION_FILE: ${MODEL_SELECTION_FILE:-}
+  TRAINING_IMAGE:       api-image
 services:
   postgres:
     container_name: teracyte-postgres
@@ -56,6 +66,8 @@ services:
     volumes:
       - objects:/app/data/objects
       - model-lifecycle:/app/data/model-lifecycle
+      - model-registry:/app/data/model-registry
+    environment: *model-env
     pre_start:
       - command:
           - uv
@@ -94,6 +106,8 @@ services:
     volumes:
       - objects:/app/data/objects
       - model-lifecycle:/app/data/model-lifecycle
+      - model-registry:/app/data/model-registry
+    environment: *model-env
     command:
       - uv
       - run
