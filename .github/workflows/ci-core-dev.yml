@@ -5,7 +5,8 @@
 #   app / analysis / shared -> image build + unit tests (in the image)
 #   analysis / shared       -> pipeline E2E with the fixture model AND with a promoted toy model
 #                              (model-consumer compatibility: selection by config, digest recorded)
-#   terraform               -> fmt / init -backend=false / validate (no credentials, no plan/apply)
+#   terraform               -> fmt / init -backend=false / validate / test with a mocked provider
+#                              (no credentials, no plan/apply against Azure)
 name: ci-core-dev
 
 on:
@@ -64,6 +65,7 @@ jobs:
               - '.github/workflows/ci-core-dev.yml'
             terraform:
               - 'infra/**'
+              - '.github/workflows/ci-core-dev.yml'
 
   build-test-e2e:
     needs: changes
@@ -138,7 +140,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
         with:
+          terraform_version: 1.17.2   # same version as tasks/cloud-infrastructure/EVIDENCE.md
           terraform_wrapper: false
       - run: terraform fmt -check -recursive
-      - run: terraform init -backend=false -input=false
+      # -lockfile=readonly: fail if the committed .terraform.lock.hcl doesn't match the constraints.
+      - run: terraform init -backend=false -input=false -lockfile=readonly
       - run: terraform validate
+      # Lifecycle/privacy assertions against mock_provider "azurerm": no Azure account needed.
+      - run: terraform test

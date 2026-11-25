@@ -113,7 +113,7 @@ The steps are: copy candidates and channels with checksums, and run `resolve` pl
 |---|---|---|
 | `services/api/**` | Dev | `ci-core-dev.yml`: image build and unit tests |
 | `pipelines/**`, `scripts/**`, `tests/e2e_verify.py`, `run-experiment.sh`, `verify-experiment.sh` | Dev | `ci-core-dev.yml`: unit tests, E2E with fixture model, consumer-compatibility E2E with a promoted toy model |
-| `infra/**` | Dev | `ci-core-dev.yml`: `terraform fmt -check`, `init -backend=false`, `validate` |
+| `infra/**` | Dev | `ci-core-dev.yml`: `terraform fmt -check`, `init -backend=false`, `validate`, `test` |
 | `examples/model_lifecycle/**` (notebook, training, evaluation), `tests/test_model_lifecycle.py` | Data/ML | `ci-data-ml.yml`: train, evaluate, publish, gate, negative control |
 | Model-only candidate (no code change) | Data/ML | `ci-data-ml.yml` `workflow_dispatch` with `source_run_id` (+ `expected_sha256`): gate, publish and consumer contract only. No training, no API build, no selection |
 | `model_handoff/**`, `examples/model_lifecycle/train.py` (loader used by the gate), `Dockerfile`, `requirements-local.txt` | Shared (DevOps/MLOps) | Both workflows |

@@ -231,7 +231,7 @@ $ docker exec teracyte-api uv run python -m pytest -q
 |---|---|---|
 | Application (API, Celery) | `services/**` | `ci-core-dev` → build image, unit tests (no E2E) |
 | Production analysis step | `pipelines/**`, `scripts/**`, `tests/e2e_verify.py` | `ci-core-dev` → build, unit tests, E2E (fixture model), model-consumer compatibility (train → publish → accept → promote toy model → E2E with `MODEL_SELECTION_FILE`) |
-| Terraform storage | `infra/**` | `ci-core-dev` → `terraform` job: `fmt -check -recursive`, `init -backend=false`, `validate`. No credentials, plan or apply. The job only runs once `infra/` exists (Terraform task). |
+| Terraform storage | `infra/**` | `ci-core-dev` → `terraform` job: `fmt -check -recursive`, `init -backend=false -lockfile=readonly`, `validate`, `test` (mocked provider). No credentials, plan or apply. See the [Terraform task evidence](../cloud-infrastructure/EVIDENCE.md). |
 | Notebook, training, evaluation | `examples/model_lifecycle/**`, `tests/test_model_lifecycle.py` | `ci-data-ml` → unit tests, train/evaluate, publish, gate, tampered negative control, assert no production selection, upload `model-candidate` |
 | Model-only candidate | none (manual `workflow_dispatch` with `source_run_id`, optional `expected_sha256`) | `ci-data-ml` → download the candidate artifact, publish, gate (digest + supplied-loader contract + thresholds). No training, no image build, no selection |
 | Shared code, runtime, handoff contract | `model_handoff/**`, `examples/model_lifecycle/train.py`, `Dockerfile`, `requirements-local.txt` | **Both** workflows |

@@ -1,0 +1,30 @@
+# Example inputs. Copy to terraform.tfvars (git-ignored) and adjust.
+# No credentials belong here: authenticate with `az login`, or ARM_* environment variables (OIDC in CI).
+
+# subscription_id = "00000000-0000-0000-0000-000000000000" # or export ARM_SUBSCRIPTION_ID
+
+name_prefix      = "tcyte"
+environment      = "dev"
+name_suffix      = "01"         # -> tcytedevimg01 / tcytedevmdl01 (must be globally unique)
+location         = "westeurope" # same region as the AKS cluster
+replication_type = "LRS"        # dev; ZRS (the default) for prod
+
+# Worksheet alternative policy (also the defaults).
+retention = {
+  raw_hot_days     = 7
+  raw_delete_days  = 30
+  mask_delete_days = 30
+}
+
+images_soft_delete_days = 0 # each soft-delete day bills ~5,371 GiB of deleted images at prod volume
+models_soft_delete_days = 30
+
+# Default: private endpoints only (public_network_access_enabled = false).
+# For a throwaway dev deployment without private networking, allow one operator IP instead:
+# public_network_access_enabled = true
+# allowed_ip_ranges             = ["203.0.113.10"]
+
+tags = {
+  owner       = "devops"
+  cost_center = "analysis"
+}

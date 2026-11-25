@@ -11,6 +11,17 @@ data/
 *.tfstate.*
 *.tfplan
 *.plan
+# Real inputs may hold subscription IDs/IPs; only *.tfvars.example is committed.
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
 .idea/
 logs/
 pyproject.toml
