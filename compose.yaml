@@ -1,8 +1,10 @@
 volumes:
   objects:
     driver: local
+    name:   data-objects
   model-lifecycle:
     driver: local
+    name:   data-model-lifecycle
 services:
   postgres:
     container_name: teracyte-postgres
@@ -48,9 +50,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    build:
-      context:    .
-      dockerfile: Dockerfile
     image:          api-image
     links:
       - celery
