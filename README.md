@@ -18,21 +18,30 @@ Follow the [local-development guide](docs/local-development.md) for the supplied
 - Run the API, worker and analysis pipeline with Compose.
 - Configure connections externally; keep data and models outside images.
 
+[Solution](tasks/containerize-workloads/INSTRUCTIONS.md)
+
 ### [Verify an experiment](tasks/verify-experiment/README.md)
 - Check five results, experiment status, model digest and execution time.
 - Demonstrate one failing check.
+
+[Solution](tasks/verify-experiment/EVIDENCE.md)
 
 ### [Support notebook-to-model delivery and Dev](tasks/support-teams/README.md)
 - Design portable cloud training and demonstrate a small local model handoff.
 - Separate Dev's application/analysis delivery from Data/ML's model lifecycle.
 
+[Solution](tasks/support-teams/DESIGN.md)
+
 ### [Plan a cost-conscious cloud deployment](tasks/cloud-deployment/README.md)
 - Map serving, analysis, notebook users and training to cloud infrastructure.
 - Compare costs using the supplied worksheet and explain portability.
 
+[Solution](tasks/cloud-deployment/ARCHITECTURE_AND_DECISIONS.md)
 ### [Implement storage with Terraform](tasks/cloud-infrastructure/README.md)
 - Define private object storage and retention policies for your chosen cloud.
 - Validate the configuration locally and in CI; cloud deployment is optional.
+
+[Solution](tasks/cloud-infrastructure/EVIDENCE.md)
 
 ## Optional extensions
 
@@ -42,6 +51,7 @@ Choose only what interests you after the required work. Completing every extensi
 - [Implement a portable training and promotion platform](tasks/training-platform/README.md)
 - [Add portable object storage and model caching](tasks/portable-storage-models/README.md)
 - [Isolate shared development environments](tasks/dev-isolation/README.md)
+#### &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[Solution](tasks/dev-isolation/DEVELOPER_ISOLATION.md)
 - [Demonstrate failure recovery](tasks/failure-recovery/README.md)
 
 ## AI use and submission

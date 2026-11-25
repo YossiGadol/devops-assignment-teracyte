@@ -1,0 +1,1 @@
+apt update && apt -y install jq && curl -s -o /dev/null -w "%{json}\\n" https://working_example.apigene.ai/api/health | jq 'del(.certs, .curl_version)'

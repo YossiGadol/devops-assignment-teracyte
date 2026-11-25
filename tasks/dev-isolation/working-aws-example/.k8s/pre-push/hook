@@ -1,0 +1,10 @@
+#!/bin/bash
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+branch="$(git branch --show-current)" || "${GITHUB_REF_NAME}"
+{ [ "$branch" = "master" ] || [ "$branch" = "main" ]; } && target_env="staging" || target_env="${branch}"
+npm install encrypted-env
+npx env-encrypt "${target_env}"
+git add .env."${target_env}".encrypted
+git commit -m "Saved encrypted .env.${target_env}.encrypted"
+exit 0

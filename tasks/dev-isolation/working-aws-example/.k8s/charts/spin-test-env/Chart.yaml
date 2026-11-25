@@ -1,0 +1,4 @@
+apiVersion: v2
+name: spin-test-env
+type: application
+version: 0.1.0

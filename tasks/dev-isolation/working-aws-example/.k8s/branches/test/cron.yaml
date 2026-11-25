@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind:       CronJob
+metadata:
+  name: invoke-prompts-to-tools
+  annotations:
+    k8s.cronitor.io/env: dev
+spec:
+  suspend:                    true
+  successfulJobsHistoryLimit: 0
+  failedJobsHistoryLimit:     1
+  concurrencyPolicy:          Forbid
+  schedule:                   "0 0 * * *"
+  jobTemplate:
+    metadata:
+      annotations:
+        k8s.cronitor.io/env: dev
+    spec:
+      template:
+        metadata:
+          annotations:
+            k8s.cronitor.io/env: dev
+        spec:
+          containers:
+            - name:            working_example-python
+              image:           999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/python-backend:dev
+              imagePullPolicy: IfNotPresent
+              command:
+                - /usr/local/bin/python3
+                - /app/crons/invoke_prompts_to_tools.py
+              env:
+                - name:  PYTHONPATH
+                  value: /app
+          restartPolicy: Never
+---
+apiVersion: batch/v1
+kind:       CronJob
+metadata:
+  name: working_example-tools-availability
+  annotations:
+    k8s.cronitor.io/env: dev
+spec:
+  suspend:                    false
+  successfulJobsHistoryLimit: 0
+  failedJobsHistoryLimit:     1
+  concurrencyPolicy:          Forbid
+  schedule:                   "0 1 * * *"
+  jobTemplate:
+    metadata:
+      annotations:
+        k8s.cronitor.io/env: dev
+    spec:
+      template:
+        metadata:
+          annotations:
+            k8s.cronitor.io/env: dev
+        spec:
+          containers:
+            - name:            working_example-python
+              image:           999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/python-backend:dev
+              imagePullPolicy: IfNotPresent
+              command:
+                - /usr/local/bin/python3
+                - /app/crons/tools_check.py
+              env:
+                - name:  PYTHONPATH
+                  value: /app
+          restartPolicy: Never

@@ -1,0 +1,145 @@
+apiVersion: v1
+kind:       ConfigMap
+metadata:
+  name: run-redirector
+data:
+  run.js: |
+      const http   = require('http');
+      const server = http.createServer((req, res) => {
+          const initial_path = req.url || '';
+          const path         = initial_path.replace("/api/v2/", "/api/");
+          const referer      = req.headers.referer || '';
+          let domain         = referer.match(/^(?i:http?s:\/\/)?(.+)\.working_example\.ai.*/);
+          if (!domain) {
+              const state_encoded = require('url').parse(req.url, true).query.state.toString();
+              if (state_encoded) {
+                  const state_decoded = Buffer.from(state_encoded, 'base64').toString('utf-8');
+                  const state_json    = JSON.parse(state_decoded);
+                  if (state_json && state_json.env_name) {
+                      domain = [null, state_json.env_name];
+                  }
+              }
+          }
+          const prefix          = domain ? domain[1] : '';
+          const redirect_domain = "https://" + prefix + ".working-example.com";
+          const redirect_url    = redirect_domain + path;
+          let output            = {
+              'req':       {
+                  'url':         req.url,
+                  'headers':     req.headers,
+                  'method':      req.method,
+                  'httpVersion': req.httpVersion,
+                  'socket':      {
+                      'remoteAddress': req.socket.remoteAddress,
+                      'remotePort':    req.socket.remotePort
+                  }
+              },
+              'res':       {
+                  'statusCode':    res.statusCode,
+                  'statusMessage': res.statusMessage
+              },
+              'processed': {
+                  'redirect': redirect_url,
+                  'path':     path,
+                  'referer':  referer,
+                  'domain':   domain ? domain[1] : 'default'
+              }
+          };
+          console.log(JSON.stringify(output, null, 2));
+          let headers = {
+              'Location':                         redirect_url,
+              'Access-Control-Allow-Origin':      redirect_domain,
+              'Access-Control-Allow-Credentials': 'true',
+              'Access-Control-Allow-Methods':     '*',
+              'Access-Control-Allow-Headers':     '*'
+          };
+          if (req.headers.authorization) {
+              headers.Authorization = req.headers.authorization;
+          }
+          const returned_headers = new Headers(headers);
+          res.statusCode         = 307;
+          res.setHeaders(returned_headers);
+          res.end('Redirecting to ' + redirect_url);
+      });
+      server.listen(3333, () => {
+          console.log('Server running on port 3333');
+      });
+---
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: redirector
+  labels:
+    app: redirector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redirector
+  template:
+    metadata:
+      name: redirector
+      labels:
+        app: redirector
+    spec:
+      volumes:
+        - name: run-redirector
+          configMap:
+            name: run-redirector
+            items:
+              - key:  run.js
+                path: run.js
+      containers:
+        - name:            redirector
+          image:           public.ecr.aws/docker/library/node:trixie-slim
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /app
+              name:      run-redirector
+          command:
+            - node
+            - /app/run.js
+          livenessProbe:
+            tcpSocket:
+              port: 3333
+            initialDelaySeconds: 1
+            periodSeconds:       5
+            failureThreshold:    5
+          readinessProbe:
+            tcpSocket:
+              port: 3333
+            initialDelaySeconds: 1
+            periodSeconds:       5
+            failureThreshold:    5
+          ports:
+            - containerPort: 3333
+              protocol:      TCP
+      restartPolicy: Always
+---
+apiVersion: v1
+kind:       Service
+metadata:
+  name: redirector
+  labels:
+    app:  redirector
+    name: redirector
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-internal:                    "false"
+    service.beta.kubernetes.io/aws-load-balancer-scheme:                      internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-type:                        nlb
+    service.beta.kubernetes.io/aws-load-balancer-listener-attributes.TCP-443: tcp.idle_timeout.seconds=600
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert:                    arn:aws:acm:us-east-2:999999999999:certificate-id
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports:                   "443"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-negotiation-policy:      ELBSecurityPolicy-TLS13-1-2-2021-06
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol:            tcp
+    service.beta.kubernetes.io/aws-load-balancer-name:                        redirector
+spec:
+  ports:
+    - name:       https
+      port:       443
+      protocol:   TCP
+      targetPort: 3333
+  selector:
+    app: redirector
+  type: LoadBalancer
+      

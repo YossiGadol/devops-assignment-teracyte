@@ -1,0 +1,74 @@
+apiVersion: v1
+data:
+  AHREFS_API_KEY: TjktdUZFY1VwenIydXRCejB0X2ZxT1huOEYtTFN3dFRwelktelgtQQ==
+kind:       Secret
+metadata:
+  name:      ahrefs
+  namespace: default
+type:       Opaque
+
+---
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: mcp-server
+  labels:
+    app: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-server
+  template:
+    metadata:
+      name: mcp-server
+      labels:
+        app: mcp-server
+    spec:
+      containers:
+        - name:            mcp-server
+          image:           999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/mcp-server
+          imagePullPolicy: Always
+          env:
+            - name: AHREFS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ahrefs
+                  key:  AHREFS_API_KEY
+          ports:
+            - containerPort: 3001
+              protocol:      TCP
+          resources:
+            limits:
+              cpu:    "1"
+              memory: 1Gi
+            requests:
+              cpu:    100m
+              memory: 100Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: RestartContainer
+            - resourceName:  memory
+              restartPolicy: RestartContainer
+      restartPolicy: Always
+---
+apiVersion: v1
+kind:       Service
+metadata:
+  labels:
+    app.kubernetes.io/name: mcp-server
+  name: mcp-server
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy:        SingleStack
+  ports:
+    - name:       mcp-server
+      port:       3001
+      protocol:   TCP
+      targetPort: 3001
+  selector:
+    app: mcp-server
+  type:                  ClusterIP
+      

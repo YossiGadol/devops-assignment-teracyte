@@ -1,0 +1,63 @@
+# Environment variables
+.env
+.env.production
+.env.dev
+.env.staging
+.env.*
+!.env.example
+env_key
+
+# IDEs
+.idea/
+.keys/
+.cursor/
+.vscode/
+.docs/
+
+# Python
+__pycache__/
+venv/
+.venv/
+
+# Node
+node_modules/
+package-lock.json
+package.json
+
+# Mac
+.DS_Store
+
+# Infrastructure
+.k8s/branches/*/1password/values.yaml
+.k8s/charts/spin-test-env/values.yaml
+.k8s/charts/run-evaluator-cron-jobs/values.yaml
+
+# Other
+.tmp/
+*.png
+.run/
+logs/
+serve.sh
+zappa_settings.json
+working_example-python.iml
+graph/langchain_tools/google/google_token_files
+*.sqlite*
+.langgraph_api/
+server-side
+.cursorrules
+*.code-workspace
+working_example-bdd284926531.json
+pyrightconfig.json
+.coverage*
+*agent_run_output*
+*agent_comparison_output*
+scripts/output/*.jsonl
+*agent_evaluation_*
+pyproject.toml.bak
+workflows/saved_workflows/
+model_cache.db
+aws/
+/*.sql
+
+# Cursor SpecStory plugin
+.specstory/

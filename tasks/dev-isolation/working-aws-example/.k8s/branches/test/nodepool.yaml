@@ -1,0 +1,71 @@
+apiVersion: eks.amazonaws.com/v1
+kind:       NodeClass
+metadata:
+  finalizers:
+    - eks.amazonaws.com/termination
+  labels:
+    app.kubernetes.io/managed-by: eks
+  name: working_example-node-class
+spec:
+  ephemeralStorage:
+    iops:       3000
+    size:       50Gi
+    throughput: 125
+  networkPolicy:          DefaultAllow
+  networkPolicyEventLogs: Disabled
+  role:                   AmazonEKSAutoNodeRole
+  securityGroupSelectorTerms:
+    - id: sg-sg-id
+    - id: sg-sg-id
+  snatPolicy:             Random
+  subnetSelectorTerms:
+    - id: subnet-subnet-id
+    - id: subnet-subnet-id
+    - id: subnet-subnet-id
+
+---
+apiVersion: karpenter.sh/v1
+kind:       NodePool
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: eks
+  name: amd64
+spec:
+  disruption:
+    budgets:
+      - nodes: "1"
+    consolidateAfter:    30s
+    consolidationPolicy: WhenEmptyOrUnderutilized
+  template:
+    metadata: {}
+    spec:
+      expireAfter:            336h
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind:  NodeClass
+        name:  working_example-node-class
+      requirements:
+        - key:      karpenter.sh/capacity-type
+          operator: In
+          values:
+            - on-demand
+        #        - key:      eks.amazonaws.com/instance-category
+        #          operator: In
+        #          values:
+        #            - c
+        #        - key:      eks.amazonaws.com/instance-family
+        #          operator: In
+        #          values:
+        #            - c8g
+        #            - c7a
+        - key:      kubernetes.io/arch
+          operator: In
+          values:
+            #            - arm64
+            - amd64
+      #        - key:      eks.amazonaws.com/instance-cpu
+      #          operator: In
+      #          values:
+      #            - "4"
+      #            - "8"
+      terminationGracePeriod: 1m30s

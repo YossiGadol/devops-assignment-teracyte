@@ -1,0 +1,201 @@
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: working_example-${env_name}
+  labels:
+    app:  working_example-${env_name}
+    name: working_example-${env_name}
+  annotations:
+    operator.1password.io/auto-restart: "true"
+    kubectl.kubernetes.io/restartedAt:  $(date +%Y-%m-%dT%H:%M:%S.%6N)
+spec:
+  revisionHistoryLimit: 0
+  replicas:             1
+  selector:
+    matchLabels:
+      app: working_example-${env_name}
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: working_example-${env_name}
+    spec:
+      volumes:
+        - name: app-${env_name}
+          secret:
+            secretName: app-tests
+            items:
+              - key:  text
+                path: text
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+            items:
+              - key:  nginx.conf
+                path: nginx.conf
+        - name: s3-volume
+          persistentVolumeClaim:
+            claimName: s3-pvc
+      containers:
+        - name:            working_example-backend
+          image:           ${image_name}
+          imagePullPolicy: Always
+          env:
+            - name:  ENV_NAME
+              value: ${env_name}
+            - name:  FRONTEND_URL
+              value: https://callback.working-example.com
+            - name:  BACKEND_URL
+              value: https://${env_name}.working-example.com/api/v2
+            - name:  DB_DATABASE
+              value: ${db_name}
+            - name:  DB_NAME
+              value: ${db_name}
+            - name:  DATABASE_URL
+              value: mysql+pymysql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${db_name}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO
+              value: postgresql://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }}/vector_${db_name}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO_ASYNC
+              value: postgresql+asyncpg://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }}/vector_${db_name}
+            - name:  POSTGRES_E2E_TEST_CONNINFO
+              value: postgresql://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }}/e2e_test_${db_name}
+            - name:  REDIS_HOST
+              value: redis-${env_name}
+            - name:  REDIS_URL
+              value: REDIS_URL=redis://redis-${env_name}:6379/0
+            - name:  REDIS_USER
+              value: ""
+            - name:  REDIS_PASSWORD
+              value: ""
+            - name:  REDIS_SSL
+              value: "false"
+          volumeMounts:
+            - mountPath: /app/.env
+              subPath:   text
+              name:      app-${env_name}
+          command:
+            - supervisord
+            - -c
+            - /etc/supervisor/conf.d/uvicorn-supervisord.conf
+          livenessProbe:
+            tcpSocket:
+              port: 5656
+            initialDelaySeconds: 5
+            periodSeconds:       10
+            failureThreshold:    5
+          readinessProbe:
+            tcpSocket:
+              port: 5656
+            initialDelaySeconds: 5
+            periodSeconds:       10
+            failureThreshold:    5
+          ports:
+            - containerPort: 5656
+              protocol:      TCP
+          resources:
+            limits:
+              cpu:    "8"
+              memory: 8Gi
+            requests:
+              cpu:    100m
+              memory: 500Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: RestartContainer
+            - resourceName:  memory
+              restartPolicy: RestartContainer
+        - name:            working_example-front
+          image:           nginx
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              protocol:      TCP
+          volumeMounts:
+            - mountPath: /etc/nginx/nginx.conf
+              name:      nginx-config
+              subPath:   nginx.conf
+            - mountPath: var/www/html
+              name:      s3-volume
+              subPath:   tests
+---
+apiVersion: v1
+kind:       Service
+metadata:
+  name: working_example-${env_name}
+  labels:
+    app:  working_example-${env_name}
+    name: working_example-${env_name}
+spec:
+  ports:
+    - name:       http-frontend
+      port:       80
+      protocol:   TCP
+      targetPort: 80
+    - name:       http-backend
+      port:       5656
+      protocol:   TCP
+      targetPort: 5656
+  selector:
+    app: working_example-${env_name}
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind:       Ingress
+metadata:
+  name: working_example-${env_name}
+  annotations:
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+spec:
+  ingressClassName: working_example-ic
+  rules:
+    - http:
+        paths:
+          - path:     /api
+            pathType: Prefix
+            backend:
+              service:
+                name: working_example-${env_name}
+                port:
+                  number: 5656
+  defaultBackend:
+    service:
+      name: working_example-${env_name}
+      port:
+        number: 80
+---
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: redis-${env_name}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-${env_name}
+  template:
+    metadata:
+      labels:
+        app: redis-${env_name}
+    spec:
+      containers:
+        - name:  redis
+          image: redis:latest
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind:       Service
+metadata:
+  name: redis-${env_name}
+spec:
+  type: ClusterIP
+  selector:
+    app: redis-${env_name}
+  ports:
+    - protocol:   TCP
+      port:       6379
+      targetPort: 6379

@@ -1,0 +1,596 @@
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: working_example-{{ .Values.env_name }}
+  labels:
+    app:  working_example-{{ .Values.env_name }}
+    name: working_example-{{ .Values.env_name }}
+  annotations:
+    operator.1password.io/auto-restart: "true"
+    rollme: {{ randAlphaNum 5 | quote }}
+spec:
+  revisionHistoryLimit: 0
+  replicas:             1
+  selector:
+    matchLabels:
+      app: working_example-{{ .Values.env_name }}
+  template:
+    metadata:
+      labels:
+        app: working_example-{{ .Values.env_name }}
+    spec:
+      volumes:
+        - name: app-{{ .Values.env_name }}
+          secret:
+            secretName: app-tests
+            items:
+              - key:  text
+                path: text
+      containers:
+        - name:  redis
+          image: public.ecr.aws/docker/library/redis:latest
+          ports:
+            - containerPort: 6379
+              protocol:      TCP
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds:       5
+            failureThreshold:    5
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds:       5
+            failureThreshold:    5
+          resources:
+            limits:
+              cpu:    "500m"
+              memory: 1Gi
+            requests:
+              cpu:    100m
+              memory: 100Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: NotRequired
+            - resourceName:  memory
+              restartPolicy: NotRequired
+        - name:            working_example-backend
+          image: {{ .Values.backend_image_name }}
+          imagePullPolicy: Always
+          env:
+            - name: ENVIRONMENT
+              value: {{ .Values.env_name }}
+            - name: ENV_NAME
+              value: {{ .Values.env_name }}
+            - name:  FRONTEND_URL
+              value: https://callback.working-example.com
+            - name:  BACKEND_URL
+              value: https://{{ .Values.env_name }}.working-example.com/api
+            - name: DB_DATABASE
+              value: {{ .Values.db_name }}
+            - name: DB_NAME
+              value: {{ .Values.db_name }}
+            - name:  DATABASE_URL
+              value: mysql+pymysql://{{ .Values.db_user }}:{{ .Values.db_password }}@{{ .Values.db_host }}:{{ .Values.db_port }}/{{ .Values.db_name }}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/vector_{{ .Values.db_name }}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO_ASYNC
+              value: postgresql+asyncpg://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/vector_{{ .Values.db_name }}
+            - name:  POSTGRES_E2E_TEST_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/e2e_test_{{ .Values.db_name }}
+            - name:  POSTGRES_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/conninfo_{{ .Values.db_name }}
+            - name:  REDIS_HOST
+              value: localhost
+            - name:  REDIS_URL
+              value: REDIS_URL=localhost://redis:6379/0
+            - name:  REDIS_USER
+              value: ""
+            - name:  REDIS_PASSWORD
+              value: ""
+            - name:  REDIS_SSL
+              value: "false"
+            - name:  DD_CODE_ORIGIN_FOR_SPANS_ENABLED
+              value: "true"
+            - name:  DD_DYNAMIC_INSTRUMENTATION_ENABLED
+              value: "true"
+          volumeMounts:
+            - mountPath: /app/.env
+              subPath:   text
+              name:      app-{{ .Values.env_name }}
+          command:
+            - uv
+            - run
+            - uvicorn
+            - main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "5656"
+          livenessProbe:
+            tcpSocket:
+              port: 5656
+            initialDelaySeconds: 30
+            periodSeconds:       10
+            failureThreshold:    15
+          readinessProbe:
+            tcpSocket:
+              port: 5656
+            initialDelaySeconds: 30
+            periodSeconds:       10
+            failureThreshold:    15
+          ports:
+            - containerPort: 5656
+              protocol:      TCP
+          resources:
+            limits:
+              cpu:    "8"
+              memory: 8Gi
+            requests:
+              cpu:    "100m"
+              memory: 100Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: NotRequired
+            - resourceName:  memory
+              restartPolicy: NotRequired
+        - name:            working_example-front
+          image: {{ .Values.front_image_name }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+              protocol:      TCP
+          resources:
+            limits:
+              cpu:    "500m"
+              memory: 1Gi
+            requests:
+              cpu:    100m
+              memory: 100Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: RestartContainer
+            - resourceName:  memory
+              restartPolicy: RestartContainer
+        - name:            trainer-backend
+          image: {{ .Values.trainer_backend_image_name }}
+          imagePullPolicy: Always
+          env:
+            - name: DB_USER
+              value: {{ .Values.db_user }}
+            - name: DB_USERNAME
+              value: {{ .Values.db_user }}
+            - name: DB_PASSWORD
+              value: {{ .Values.db_password }}
+            - name: PG_USERNAME
+              value: {{ .Values.pg_username }}
+            - name: PG_PASSWORD
+              value: {{ .Values.pg_password }}
+            - name: DB_HOST
+              value: {{ .Values.db_host }}
+            - name: PG_HOST
+              value: {{ .Values.pg_host }}
+            - name: ENVIRONMENT
+              value: {{ .Values.env_name }}
+            - name: ENV_NAME
+              value: {{ .Values.env_name }}
+            - name:  FRONTEND_URL
+              value: https://callback.working-example.com
+            - name:  BACKEND_URL
+              value: https://{{ .Values.env_name }}.working-example.com/api
+            - name: DB_DATABASE
+              value: {{ .Values.db_name }}
+            - name: DB_NAME
+              value: {{ .Values.db_name }}
+            - name:  DATABASE_URL
+              value: mysql+pymysql://{{ .Values.db_user }}:{{ .Values.db_password }}@{{ .Values.db_host }}:{{ .Values.db_port }}/{{ .Values.db_name }}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/vector_{{ .Values.db_name }}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO_ASYNC
+              value: postgresql+asyncpg://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/vector_{{ .Values.db_name }}
+            - name:  POSTGRES_E2E_TEST_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/e2e_test_{{ .Values.db_name }}
+            - name:  POSTGRES_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/conninfo_{{ .Values.db_name }}
+            - name:  REDIS_HOST
+              value: localhost
+            - name:  REDIS_URL
+              value: REDIS_URL=redis://localhost:6379/0
+            - name:  REDIS_USER
+              value: ""
+            - name:  REDIS_PASSWORD
+              value: ""
+            - name:  REDIS_SSL
+              value: "false"
+            - name:  REACT_APP_API_URL
+              value: https://trainer-{{ .Values.env_name }}.working-example.com
+            - name: REACT_APP_ENV
+              value: {{ .Values.env_name }}
+            - name:  DD_CODE_ORIGIN_FOR_SPANS_ENABLED
+              value: "true"
+            - name:  DD_DYNAMIC_INSTRUMENTATION_ENABLED
+              value: "true"
+            - name:  DD_PROFILING_ENABLED
+              value: "true"
+          ports:
+            - containerPort: 8555
+              protocol:      TCP
+              name:          trainer-back
+          resources:
+            limits:
+              cpu:    "8"
+              memory: 8Gi
+            requests:
+              cpu:    "100m"
+              memory: 100Mi
+          livenessProbe:
+            tcpSocket:
+              port: 8555
+            initialDelaySeconds: 30
+            periodSeconds:       10
+            failureThreshold:    15
+          readinessProbe:
+            tcpSocket:
+              port: 8555
+            initialDelaySeconds: 30
+            periodSeconds:       10
+            failureThreshold:    15
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: NotRequired
+            - resourceName:  memory
+              restartPolicy: NotRequired
+        - name:            trainer-frontend
+          image: {{ .Values.trainer_frontend_image_name }}
+          imagePullPolicy: Always
+          env:
+            - name:  DISABLE_ESLINT_PLUGIN
+              value: "true"
+            - name: DB_USER
+              value: {{ .Values.db_user }}
+            - name: DB_USERNAME
+              value: {{ .Values.db_user }}
+            - name: DB_PASSWORD
+              value: {{ .Values.db_password }}
+            - name: PG_USERNAME
+              value: {{ .Values.pg_username }}
+            - name: PG_PASSWORD
+              value: {{ .Values.pg_password }}
+            - name: DB_HOST
+              value: {{ .Values.db_host }}
+            - name: PG_HOST
+              value: {{ .Values.pg_host }}
+            - name:  REACT_APP_API_URL
+              value: https://trainer-{{ .Values.env_name }}.working-example.com
+            - name: REACT_APP_ENV
+              value: {{ .Values.env_name }}
+          ports:
+            - containerPort: 3000
+              protocol:      TCP
+              name:          trainer-front
+          resources:
+            limits:
+              cpu:    "500m"
+              memory: 1Gi
+            requests:
+              cpu:    "100m"
+              memory: 100Mi
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds:       10
+            failureThreshold:    15
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds:       10
+            failureThreshold:    15
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: NotRequired
+            - resourceName:  memory
+              restartPolicy: NotRequired
+        - name:            working_example-braintrust
+          image: {{ .Values.backend_image_name }}
+          imagePullPolicy: Always
+          env:
+            - name: ENVIRONMENT
+              value: {{ .Values.env_name }}
+            - name: ENV_NAME
+              value: {{ .Values.env_name }}
+            - name:  FRONTEND_URL
+              value: https://callback.working-example.com
+            - name:  BACKEND_URL
+              value: https://{{ .Values.env_name }}.working-example.com/api
+            - name: DB_DATABASE
+              value: {{ .Values.db_name }}
+            - name: DB_NAME
+              value: {{ .Values.db_name }}
+            - name:  DATABASE_URL
+              value: mysql+pymysql://{{ .Values.db_user }}:{{ .Values.db_password }}@{{ .Values.db_host }}:{{ .Values.db_port }}/{{ .Values.db_name }}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/vector_{{ .Values.db_name }}
+            - name:  POSTGRES_GRAPHFLOW_CONNINFO_ASYNC
+              value: postgresql+asyncpg://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/vector_{{ .Values.db_name }}
+            - name:  POSTGRES_E2E_TEST_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/e2e_test_{{ .Values.db_name }}
+            - name:  POSTGRES_CONNINFO
+              value: postgresql://{{ .Values.pg_username }}:{{ .Values.pg_password }}@{{ .Values.pg_host }}:{{ .Values.pg_port }}/conninfo_{{ .Values.db_name }}
+            - name:  REDIS_HOST
+              value: localhost
+            - name:  REDIS_URL
+              value: REDIS_URL=localhost://redis:6379/0
+            - name:  REDIS_USER
+              value: ""
+            - name:  REDIS_PASSWORD
+              value: ""
+            - name:  REDIS_SSL
+              value: "false"
+            - name:  DD_CODE_ORIGIN_FOR_SPANS_ENABLED
+              value: "true"
+            - name:  DD_DYNAMIC_INSTRUMENTATION_ENABLED
+              value: "true"
+            - name: BRAINTRUST_PROJECT_NAME
+              value: "{{ .Values.bt_project_name }}"
+            - name: BRAINTRUST_API_KEY
+              value: "{{ .Values.bt_api_key }}"
+            - name: BRAINTRUST_USER_ID
+              value: "{{ .Values.bt_user_id }}"
+            - name: BRAINTRUST_SNIPPET_ID
+              value: "{{ .Values.bt_snippet_id }}"
+          volumeMounts:
+            - mountPath: /app/.env
+              subPath:   text
+              name:      app-{{ .Values.env_name }}
+          command:
+            - uv
+            - run
+            - braintrust
+            - eval
+            - --dev
+            - --dev-host
+            - 0.0.0.0
+            - --dev-port
+            - "8300"
+            - src/evals
+          livenessProbe:
+            tcpSocket:
+              port: 8300
+            initialDelaySeconds: 30
+            periodSeconds:       30
+            failureThreshold:    15
+          readinessProbe:
+            tcpSocket:
+              port: 8300
+            initialDelaySeconds: 30
+            periodSeconds:       30
+            failureThreshold:    15
+          ports:
+            - containerPort: 8300
+              protocol:      TCP
+          resources:
+            limits:
+              cpu:    "1"
+              memory: 2Gi
+            requests:
+              cpu:    "100m"
+              memory: 100Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: NotRequired
+            - resourceName:  memory
+              restartPolicy: NotRequired
+---
+apiVersion: v1
+kind:       Service
+metadata:
+  name: working_example-{{ .Values.env_name }}
+  labels:
+    app:  working_example-{{ .Values.env_name }}
+    name: working_example-{{ .Values.env_name }}
+spec:
+  ports:
+    - name: http-frontend
+      port: 80
+    - name: http-backend
+      port: 5656
+    - name: http-braintrust
+      port: 8300
+    - name: trainer-back
+      port: 8555
+    - name: trainer-front
+      port: 3000
+  selector:
+    app: working_example-{{ .Values.env_name }}
+  type: ClusterIP
+---
+apiVersion: k8s.nginx.org/v1
+kind:       VirtualServer
+metadata:
+  name: working_example-{{ .Values.env_name }}
+spec:
+  server-snippets:            |
+                              http2 on;
+                              chunked_transfer_encoding on;
+                              client_max_body_size 20M;
+                              proxy_buffer_size 4k;
+                              proxy_buffering off;
+                              proxy_cache off;
+                              proxy_connect_timeout 86400;
+                              proxy_http_version 1.1;
+                              proxy_max_temp_file_size 0;
+                              proxy_pass_header Authorization;
+                              proxy_pass_request_body on;
+                              proxy_pass_request_headers on;
+                              proxy_read_timeout 86400;
+                              proxy_send_timeout 86400;
+                              proxy_set_header Accept-Language $http_accept_language;
+                              proxy_set_header Authorization $http_authorization;
+                              proxy_set_header Connection '';
+                              proxy_set_header Cookie $http_cookie;
+                              proxy_set_header Host $host;
+                              proxy_set_header Origin $http_origin;
+                              proxy_set_header Referer $http_referer;
+                              proxy_set_header User-Agent $http_user_agent;
+                              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                              proxy_set_header X-Forwarded-Host $host;
+                              proxy_set_header X-Forwarded-Port $server_port;
+                              proxy_set_header X-Forwarded-Proto $scheme;
+                              proxy_set_header X-Real-IP $remote_addr;
+  host: {{ .Values.env_name }}.working-example.com
+  upstreams:
+    - name:    working_example-{{ .Values.env_name }}-frontend
+      service: keda-add-ons-http-interceptor-proxy
+      port:    8080
+    - name:    working_example-{{ .Values.env_name }}-backend
+      service: working_example-{{ .Values.env_name }}
+      port:    5656
+  routes:
+    - path: /api/
+      action:
+        pass: working_example-{{ .Values.env_name }}-backend
+    - path: /socket.io/
+      action:
+        pass: working_example-{{ .Values.env_name }}-backend
+    - path: /
+      action:
+        pass: working_example-{{ .Values.env_name }}-frontend
+      errorPages:
+        - codes:
+            - 502
+          return:
+            code: 502
+            body: 'This test environment is warming up. Please try again in a few minutes.'
+---
+apiVersion: k8s.nginx.org/v1
+kind:       VirtualServer
+metadata:
+  name: trainer-{{ .Values.env_name }}
+spec:
+  server-snippets: |
+                   http2 on;
+                   chunked_transfer_encoding on;
+                   client_max_body_size 20M;
+                   proxy_buffer_size 4k;
+                   proxy_buffering off;
+                   proxy_cache off;
+                   proxy_connect_timeout 86400;
+                   proxy_http_version 1.1;
+                   proxy_max_temp_file_size 0;
+                   proxy_pass_header Authorization;
+                   proxy_pass_request_body on;
+                   proxy_pass_request_headers on;
+                   proxy_read_timeout 86400;
+                   proxy_send_timeout 86400;
+                   proxy_set_header Accept-Language $http_accept_language;
+                   proxy_set_header Authorization $http_authorization;
+                   proxy_set_header Connection '';
+                   proxy_set_header Cookie $http_cookie;
+                   proxy_set_header Host $host;
+                   proxy_set_header Origin $http_origin;
+                   proxy_set_header Referer $http_referer;
+                   proxy_set_header User-Agent $http_user_agent;
+                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                   proxy_set_header X-Forwarded-Host $host;
+                   proxy_set_header X-Forwarded-Port $server_port;
+                   proxy_set_header X-Forwarded-Proto $scheme;
+                   proxy_set_header X-Real-IP $remote_addr;
+  host:            trainer-{{ .Values.env_name }}.working-example.com
+  upstreams:
+    - name:    trainer-{{ .Values.env_name }}-frontend
+      service: working_example-{{ .Values.env_name }}
+      port:    3000
+    - name:    trainer-{{ .Values.env_name }}-backend
+      service: working_example-{{ .Values.env_name }}
+      port:    8555
+  routes:
+    - path: /api/
+      action:
+        pass: trainer-{{ .Values.env_name }}-backend
+    - path: /
+      action:
+        pass: trainer-{{ .Values.env_name }}-frontend
+      errorPages:
+        - codes:
+            - 502
+          return:
+            code: 502
+            body: 'This test environment is warming up. Please try again in a few minutes.'
+---
+apiVersion: k8s.nginx.org/v1
+kind:       VirtualServer
+metadata:
+  name: braintrust-{{ .Values.env_name }}
+spec:
+  server-snippets: |
+                   http2 on;
+                   chunked_transfer_encoding on;
+                   client_max_body_size 20M;
+                   proxy_buffer_size 4k;
+                   proxy_buffering off;
+                   proxy_cache off;
+                   proxy_connect_timeout 86400;
+                   proxy_http_version 1.1;
+                   proxy_max_temp_file_size 0;
+                   proxy_pass_header Authorization;
+                   proxy_pass_request_body on;
+                   proxy_pass_request_headers on;
+                   proxy_read_timeout 86400;
+                   proxy_send_timeout 86400;
+                   proxy_set_header Accept-Language $http_accept_language;
+                   proxy_set_header Authorization $http_authorization;
+                   proxy_set_header Connection '';
+                   proxy_set_header Cookie $http_cookie;
+                   proxy_set_header Host $host;
+                   proxy_set_header Origin $http_origin;
+                   proxy_set_header Referer $http_referer;
+                   proxy_set_header User-Agent $http_user_agent;
+                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                   proxy_set_header X-Forwarded-Host $host;
+                   proxy_set_header X-Forwarded-Port $server_port;
+                   proxy_set_header X-Forwarded-Proto $scheme;
+                   proxy_set_header X-Real-IP $remote_addr;
+  host:            braintrust-{{ .Values.env_name }}.working-example.com
+  upstreams:
+    - name:    braintrust-{{ .Values.env_name }}
+      service: working_example-{{ .Values.env_name }}
+      port:    8300
+  routes:
+    - path: /
+      action:
+        pass: braintrust-{{ .Values.env_name }}
+      errorPages:
+        - codes:
+            - 502
+          return:
+            code: 502
+            body: 'This test environment is warming up. Please try again in a few minutes.'
+---
+kind:       HTTPScaledObject
+apiVersion: http.keda.sh/v1alpha1
+metadata:
+  name: working_example-{{ .Values.env_name }}
+spec:
+  hosts:
+    - {{ .Values.env_name }}.working-example.com
+  pathPrefixes:
+    - /
+  scaleTargetRef:
+    name:       working_example-{{ .Values.env_name }}
+    kind:       Deployment
+    apiVersion: apps/v1
+    service:    working_example-{{ .Values.env_name }}
+    port:       80
+  replicas:
+    min: 0
+    max: 1
+  scaledownPeriod: 28800
+  scalingMetric:
+    requestRate:
+      granularity: 1s
+      targetValue: 1
+      window:      1m

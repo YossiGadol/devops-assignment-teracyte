@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind:       Deployment
+metadata:
+  name: working_example-python
+  labels:
+    app:  working_example-python
+    name: working_example-python
+  annotations:
+    operator.1password.io/auto-restart: "true"
+spec:
+  revisionHistoryLimit: 0
+  replicas:             1
+  selector:
+    matchLabels:
+      app: working_example-python
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: working_example-python
+    spec:
+      volumes:
+        - name: app-dev
+          secret:
+            secretName: app-dev
+            items:
+              - key:  text
+                path: text
+      initContainers:
+        - name:            run-migrations
+          image:           999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/python-backend:dev
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /app/.env
+              subPath:   text
+              name:      app-dev
+          command:
+            - alembic
+            - upgrade
+            - head
+          resources:
+            limits:
+              cpu:    "8"
+              memory: 8Gi
+            requests:
+              cpu:    100m
+              memory: 500Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: RestartContainer
+            - resourceName:  memory
+              restartPolicy: RestartContainer
+      containers:
+        - name:            working_example-python
+          image:           999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/python-backend:dev
+          imagePullPolicy: Always
+          env:
+            - name:  MCP_SERVER_URL
+              value: http://mcp-server:3001/sse
+          volumeMounts:
+            - mountPath: /app/.env
+              subPath:   text
+              name:      app-dev
+          command:
+            - supervisord
+            - -c
+            - /etc/supervisor/conf.d/uvicorn-supervisord.conf
+          livenessProbe:
+            tcpSocket:
+              port: 5656
+            initialDelaySeconds: 5
+            periodSeconds:       10
+            failureThreshold:    5
+          readinessProbe:
+            tcpSocket:
+              port: 5656
+            initialDelaySeconds: 5
+            periodSeconds:       10
+            failureThreshold:    5
+          ports:
+            - containerPort: 5656
+              protocol:      TCP
+          resources:
+            limits:
+              cpu:    "8"
+              memory: 8Gi
+            requests:
+              cpu:    100m
+              memory: 500Mi
+          resizePolicy:
+            - resourceName:  cpu
+              restartPolicy: RestartContainer
+            - resourceName:  memory
+              restartPolicy: RestartContainer
+
+---
+apiVersion: v1
+kind:       Service
+metadata:
+  name: working_example-python
+  labels:
+    name: working_example-python
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type:              instance
+    service.beta.kubernetes.io/aws-load-balancer-scheme:                       internal
+    service.beta.kubernetes.io/aws-load-balancer-type:                         nlb
+    service.beta.kubernetes.io/aws-load-balancer-listener-attributes.TCP-5656: tcp.idle_timeout.seconds=600
+spec:
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port:       5656
+      targetPort: 5656
+      protocol:   TCP
+      name:       http
+  selector:
+    app: working_example-python
+  type:           LoadBalancer

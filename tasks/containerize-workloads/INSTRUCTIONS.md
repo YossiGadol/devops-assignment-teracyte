@@ -31,6 +31,7 @@ To shut down the containers, execute the command:<br>`./stop.sh`
 The created data is stored in a persistent Docker Volume:
 `data-objects`; published models, gate records and channels are in `data-model-registry`.
 
+[Demonstration](EVIDENCE.md)
 
 ## Limitations
 * The built Docker Image is not pushed to a registry. This could be added very easily to the build script but skipped because the functionality of the demo will not benefit from it.

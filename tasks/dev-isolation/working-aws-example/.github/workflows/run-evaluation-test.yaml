@@ -1,0 +1,128 @@
+name:        Run Evaluation Test
+permissions: write-all
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_ids:
+        description: 'Argument --prompt-ids'
+        required:    false
+        type:        string
+      config_path:
+        description: 'Argument --config'
+        required:    false
+        type:        string
+      user_id:
+        description: 'Argument --user-id'
+        required:    false
+        type:        string
+      snippet_id:
+        description: 'Argument --snippet-id'
+        required:    false
+        type:        string
+jobs:
+  run-kubernetes-job:
+    runs-on:     test-envs
+    permissions: write-all
+    steps:
+      - name: Checkout repository to read git history
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            us-east-2
+
+      - name:  Create and run Kubernetes Job
+        shell: bash
+        env:
+          PROMPT_IDS:  ${{ github.event.inputs.prompt_ids || vars.EVALUATOR_QUALITY_DEFAULT_PROMPT_IDS }}
+          CONFIG_PATH: ${{ github.event.inputs.config_path || vars.EVALUATOR_QUALITY_DEFAULT_CONFIG_PATH }}
+          USER_ID:     ${{ github.event.inputs.user_id || vars.EVALUATOR_QUALITY_DEFAULT_USER_ID }}
+          SNIPPET_ID:  ${{ github.event.inputs.snippet_id || vars.EVALUATOR_QUALITY_DEFAULT_SNIPPET_ID }}
+          IMAGE:       ${{ secrets.EVALUATION_IMAGE }}
+        run:   |
+               JOB_NAME="evaluation-test-job-${{ github.run_id }}"
+               echo "Preparing to run Kubernetes Job: $JOB_NAME"
+               echo "Using image: ${IMAGE}"
+               cat << EOF | kubectl --context=${{ secrets.DEV_CLUSTER }} apply -f -
+               apiVersion: batch/v1
+               kind:       Job
+               metadata:
+                 name: ${JOB_NAME}
+                 annotations:
+                   batch.kubernetes.io/job-tracking: "true"
+               spec:
+                 activeDeadlineSeconds:   7200
+                 ttlSecondsAfterFinished: 300
+                 template:
+                   spec:
+                     affinity:
+                       podAntiAffinity:
+                         requiredDuringSchedulingIgnoredDuringExecution:
+                           - labelSelector:
+                               matchExpressions:
+                                 - key:      name
+                                   operator: Exists
+                             topologyKey: kubernetes.io/hostname
+                     volumes:
+                       - name: app-evaluation
+                         secret:
+                           secretName: app-evaluation
+                           items:
+                             - key:  text
+                               path: text
+                     containers:
+                       - name:            evaluation-test
+                         image:           ${IMAGE}
+                         imagePullPolicy: Always
+                         volumeMounts:
+                           - mountPath: /app/.env
+                             subPath:   text
+                             name:      app-evaluation
+                         env:
+                           - name:  DD_SERVICE
+                             value: evaluator-test
+                           - name:  DD_LOG_DESTINATION
+                             value: local
+                           - name:  DD_ENV
+                             value: evaluation
+                           - name:  DD_LOGS_INJECTION
+                             value: "true"
+                           - name:  DD_AGENT_HOST
+                             value: datadog-agent
+                         workingDir:      /app
+                         command:
+                           - uv
+                           - run
+                           - crons/run_evaluator.py
+                         args:
+                           - --prompt-ids
+                           - "${PROMPT_IDS}"
+                           - --storage-driver
+                           - clickhouse
+                           - --output
+                           - evaluator/output/run_prompt_output
+                           - --config
+                           - "${CONFIG_PATH}"
+                           - --user-id
+                           - "${USER_ID}"
+                           - --snippet-id
+                           - "${SNIPPET_ID}"
+                         resources:
+                           limits:
+                             cpu:    "8"
+                             memory: 8Gi
+                           requests:
+                             cpu:    "2"
+                             memory: 2Gi
+                         resizePolicy:
+                           - resourceName:  cpu
+                             restartPolicy: NotRequired
+                           - resourceName:  memory
+                             restartPolicy: NotRequired
+                     restartPolicy: Never
+               EOF
+               echo "Job created successfully."

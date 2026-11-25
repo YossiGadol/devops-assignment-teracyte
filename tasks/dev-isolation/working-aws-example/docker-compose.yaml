@@ -1,0 +1,148 @@
+networks:
+  global:
+    driver: bridge
+volumes:
+  psql:
+    driver: local
+  psqlconf:
+    driver: local
+  mysql:
+    driver: local
+  mysqlconf:
+    driver: local
+  redis:
+    driver: local
+  clickhouse_data:
+    driver: local
+  clickhouse_keeper_data:
+    driver: local
+
+
+services:
+  mysql:
+    container_name: working_example-dev-mysql
+    image: mysql:latest
+    command: --disable-log-bin --group_concat_max_len=18446744073709551615 --sql_mode="ALLOW_INVALID_DATES,NO_ENGINE_SUBSTITUTION" --lock-wait-timeout=60
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: working_example
+      MYSQL_USER: working_example
+      MYSQL_PASSWORD: working_example
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+      MYSQL_DATABASE: working_example
+    volumes:
+      - 'mysql:/var/lib/mysql'
+      - 'mysqlconf:/etc/mysql'
+      - '.infra/local-dev/mysql:/docker-entrypoint-initdb.d'
+    networks:
+      - global
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-pmysql" ]
+      retries: 3
+      timeout: 5s
+
+  psql:
+    container_name: working_example-dev-psql
+    image: pgvector/pgvector:pg17-trixie
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: working_example
+      POSTGRES_PASSWORD: working_example
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=en_US.UTF-8"
+    volumes:
+      - 'psql:/var/lib/postgresql/data'
+      - 'psqlconf:/etc/postgresql'
+      - '.infra/local-dev/psql:/docker-entrypoint-initdb.d'
+    networks:
+      - global
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "working_example", "-d", "postgres" ]
+      retries: 3
+      timeout: 5s
+    depends_on:
+      - mysql
+
+  redis:
+    container_name: working_example-dev-redis
+    image: valkey/valkey:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - 'redis:/data'
+    networks:
+      - global
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      retries: 3
+      timeout: 5s
+    depends_on:
+      - psql
+
+  clickhouse-server:
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
+    container_name: working_example-dev-clickhouse
+    image: clickhouse/clickhouse-server:latest
+    profiles:
+      - evaluator
+    networks:
+      - global
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_USER: working_example
+      CLICKHOUSE_PASSWORD: working_example
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - .infra/local-dev/clickhouse/clickhouse-config.xml:/etc/clickhouse-server/config.d/clickhouse-config.xml
+      - .infra/local-dev/clickhouse/docker_related_config.xml:/etc/clickhouse-server/config.d/docker_related_config.xml
+      - .infra/local-dev/clickhouse/macros.xml:/etc/clickhouse-server/config.d/macros.xml
+      - .infra/local-dev/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - clickhouse_data:/var/lib/clickhouse
+
+
+  clickhouse-keeper:
+    container_name: working_example-dev-clickhouse-keeper
+    image: clickhouse/clickhouse-keeper:latest
+    healthcheck:
+      test: [ "CMD-SHELL", "clickhouse-keeper-client --query ruok" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    profiles:
+      - evaluator
+    volumes:
+      - .infra/local-dev/clickhouse/keeper-config.xml:/etc/clickhouse-keeper/keeper_config.xml
+      - clickhouse_keeper_data:/var/lib/clickhouse/coordination
+    networks:
+      - global
+    ports:
+      - "9181:9181"
+
+  # mcp:
+  #   container_name: mcp
+  #   image: 999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/mcp-server
+  #   networks:
+  #     - global
+  #   ports:
+  #     - "3001:3001"
+
+  mcp:
+    container_name: working_example-dev-mcp
+    build:
+      context: .
+      dockerfile: .infra/local-dev/mcp-server/Dockerfile
+      ssh:
+        - default
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - "3001:3001"

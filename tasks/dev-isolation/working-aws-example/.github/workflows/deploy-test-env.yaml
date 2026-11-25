@@ -1,0 +1,310 @@
+name: Deploy test environment
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - test/*
+    paths-ignore:
+      - '.k8s/**'
+      - 'k8s/**'
+      - '.git**'
+      - 'package-lock.json'
+      - '.infra/**'
+      - '.env-encrypted.config.json'
+      - '.env.*.encrypted'
+      - '.dockerignore'
+      - 'composer.lock'
+      - '.github/workflows/**'
+      - '.github/slack.yml'
+      - '.gitignore'
+      - '.dockerignore'
+      - 'get-env-files.sh'
+      - 'encrypt-env.sh'
+      - 'decrypt-env.sh'
+      - 'readme.md'
+      - 'README.md'
+      - 'docker-compose.yaml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'clean-unused.sh'
+
+jobs:
+  build:
+    runs-on: test-envs
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name:  Generate env name
+        shell: bash
+        run:   |
+               slugify() {
+                 echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'
+               }
+               branch="$(git branch --show-current)"||"${GITHUB_REF_NAME}"
+               env_name=$(slugify "${branch}")
+               db_name=$(echo "${env_name}" | sed 's/-/_/g')
+               echo "backend_branch=${branch}" >> $GITHUB_ENV
+               echo "env_name=${env_name}" >> $GITHUB_ENV
+               echo "db_name=${db_name}" >> $GITHUB_ENV
+               echo "backend_image_name=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_BACKEND_IMAGE }}:${env_name}" >> $GITHUB_ENV
+               echo "front_image_name=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_FRONTEND_IMAGE }}:${env_name}" >> $GITHUB_ENV
+               trainer_backend_exists=$(aws ecr list-images --repository-name ${{ secrets.DOCKER_TRAINER_IMAGE }} --query "imageIds[? imageTag=='backend-${env_name}'].imageTag" --output text)
+               if [ -n "$trainer_backend_exists" ]; then
+                  trainer_backend_image_name="${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_TRAINER_IMAGE }}:backend-${env_name}"
+               else
+                  trainer_backend_image_name="${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_TRAINER_IMAGE }}:backend-production"
+               fi
+               trainer_frontend_exists=$(aws ecr list-images --repository-name ${{ secrets.DOCKER_TRAINER_IMAGE }} --query "imageIds[? imageTag=='frontend-${env_name}'].imageTag" --output text)
+               if [ -n "$trainer_frontend_exists" ]; then
+                  trainer_frontend_image_name="${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_TRAINER_IMAGE }}:frontend-${env_name}"
+               else
+                  trainer_frontend_image_name="${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_TRAINER_IMAGE }}:frontend-production"
+               fi
+               echo "trainer_backend_image_name=${trainer_backend_image_name}" >> $GITHUB_ENV
+               echo "trainer_frontend_image_name=${trainer_frontend_image_name}" >> $GITHUB_ENV
+
+
+      - name:              Checkout frontend repo with same branch as backend
+        uses:              actions/checkout@v4
+        continue-on-error: true
+        id:                checkout_same_branch
+        with:
+          repository: working_example-ai/working_example-front
+          ref:        ${{ env.backend_branch }}
+          path:       frontend
+          token:      ${{ secrets.GH_PAT }}
+
+      - name: Fallback to frontend production branch if same branch doesn't exist
+        if:   steps.checkout_same_branch.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          repository: working_example-ai/working_example-front
+          ref:        production
+          path:       frontend
+          token:      ${{ secrets.GH_PAT }}
+
+      - name:              Install dependencies
+        shell:             bash
+        continue-on-error: true
+        run:               |
+                           cd frontend
+                           echo "FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}" >> .env
+                           echo "FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}" >> .env
+                           echo "FIREBASE_DB: ${{ secrets.FIREBASE_DB }}" >> .env
+                           echo "FIREBASE_DOMAIN: ${{ secrets.FIREBASE_DOMAIN }}" >> .env
+                           echo "FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}" >> .env
+                           echo "FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}" >> .env
+                           echo "FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}" >> .env
+                           echo "API_URL: https://${{ env.env_name }}.working-example.com" >> .env
+                           echo "NO_PREFIX: true" >> .env
+                           echo "GOOGLE_CLIENT_ID: ${{ secrets.TEST_ENV_GOOGLE_CLIENT_ID }}" >> .env
+                           echo "GOOGLE_REDIRECT_URI: ${{ secrets.TEST_ENV_OAUTH_REDIRECT }}" >> .env
+                           echo "GOOGLE_SCOPE: ${{ secrets.GOOGLE_SCOPE }}" >> .env
+                           pnpm install
+                           pnpm build
+                           cd "$(git rev-parse --show-toplevel)"
+
+      - name:  Create DB if it does not exist
+        shell: bash
+        run:   |
+               set -e
+               echo "use $db_name;"
+               result=$(mysql -e "use $db_name;" || echo 1)
+               if [[ $result -eq 0 ]]
+                  then
+                   echo "Database $db_name already exists."
+                  else
+                   echo "Creating database $db_name..."
+                   echo "create database $db_name default character set utf8mb4 collate utf8mb4_unicode_ci default encryption = 'N';"
+                   mysql -e "create database $db_name default character set utf8mb4 collate utf8mb4_unicode_ci default encryption = 'N';"
+                   mysql "$db_name" < /working_example-mysql/working_example-mysql.sql
+               fi
+
+      - name:  Grant permissions to DB user
+        shell: bash
+        run:   |
+               set -e
+               echo "grant all privileges on $db_name.* to 'working_example'@'%';"
+               mysql -e "grant all privileges on $db_name.* to 'working_example'@'%';"
+
+      - name:              Create Postgres Vector DB if it does not exist
+        continue-on-error: true
+        shell:             bash
+        run:               psql postgresql://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }} -c "create database vector_${db_name};"
+
+      - name:              Create Postgres ConnInfo DB if it does not exist
+        continue-on-error: true
+        shell:             bash
+        run:               psql postgresql://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }} -c "create database conninfo_${db_name};"
+
+      - name:  Build frontend Docker image
+        shell: bash
+        run:   |
+               aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.DOCKER_REGISTRY }}
+               cd .k8s/docker/frontend || exit 1
+               docker buildx build \
+                --platform=linux/amd64 \
+                --provenance=true \
+                --sbom=true \
+                --no-cache \
+                -t "${front_image_name}" \
+                -f frontend.Dockerfile "$(git rev-parse --show-toplevel)"/frontend/dist
+               cd "$(git rev-parse --show-toplevel)"
+
+      - name: Clean frontend directory
+        run:  rm -rf frontend
+
+      - name:  Push frontend Docker image
+        shell: bash
+        run:   |
+               docker push "${front_image_name}"
+               docker rmi -f "${front_image_name}"
+
+      - name:  Build backend Docker image
+        shell: bash
+        run:   |
+               aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.DOCKER_REGISTRY }}
+               cd .k8s/docker/target || exit 1
+               # Capture git information for build args
+               commit_hash="$(git rev-parse HEAD)"
+               commit_short_hash="$(git rev-parse --short HEAD)"
+               branch_name="$(git branch --show-current)" || "${GITHUB_REF_NAME}"
+               commit_message="$(git log -1 --pretty=%B)"
+               commit_date="$(git log -1 --pretty=%cd --date=iso)"
+               docker buildx build \
+                --platform=linux/amd64 \
+                --provenance=true \
+                --sbom=true \
+                --no-cache \
+                --build-arg GIT_REV="${revision}" \
+                --build-arg GIT_COMMIT_HASH="${commit_hash}" \
+                --build-arg GIT_COMMIT_SHORT_HASH="${commit_short_hash}" \
+                --build-arg GIT_BRANCH="${branch_name}" \
+                --build-arg GIT_COMMIT_MESSAGE="${commit_message}" \
+                --build-arg GIT_COMMIT_DATE="${commit_date}" \
+                -t "${backend_image_name}" \
+                -f Dockerfile "$(git rev-parse --show-toplevel)"
+
+      - name:  Push backend Docker image
+        shell: bash
+        run:   |
+               docker push "${backend_image_name}"
+               docker rmi -f "${backend_image_name}"
+               docker system prune -f
+               docker buildx prune -a -f
+               docker ps -aq | xargs -r docker stop | xargs -r docker rm
+
+      - name: Run migrations
+        shell: bash
+        run: |
+          kubectl config use-context ${{ secrets.TESTS_CLUSTER }}
+          kubectl delete job.batch/run-migrations-${{ env.env_name }} || true
+          cat << EOF | kubectl apply -f -
+          apiVersion: batch/v1
+          kind:       Job
+          metadata:
+            name: run-migrations-${{ env.env_name }}
+          spec:
+            ttlSecondsAfterFinished: 60
+            template:
+              spec:
+                containers:
+                  - name:            run-migrations
+                    image:           ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_BACKEND_IMAGE }}:${{ env.env_name }}
+                    imagePullPolicy: Always
+                    command:
+                      - uv
+                      - run
+                      - alembic
+                      - upgrade
+                      - head
+                    resources:
+                      limits:
+                        cpu:    "8"
+                        memory: 8Gi
+                      requests:
+                        cpu:    "100m"
+                        memory: 100Mi
+                    resizePolicy:
+                      - resourceName:  cpu
+                        restartPolicy: NotRequired
+                      - resourceName:  memory
+                        restartPolicy: NotRequired
+                    env:
+                      - name: ENV_NAME
+                        value: "${{ env.env_name }}"
+                      - name: FRONTEND_URL
+                        value: "https://callback.working-example.com"
+                      - name: BACKEND_URL
+                        value: "https://${{ env.env_name }}.working-example.com/api"
+                      - name: DB_DATABASE
+                        value: "${{ env.db_name }}"
+                      - name: DB_NAME
+                        value: "${{ env.db_name }}"
+                      - name: DATABASE_URL
+                        value: "mysql+pymysql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ env.db_name }}"
+                      - name: POSTGRES_GRAPHFLOW_CONNINFO
+                        value: "postgresql://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }}/vector_${{ env.db_name }}"
+                      - name: POSTGRES_GRAPHFLOW_CONNINFO_ASYNC
+                        value: "postgresql+asyncpg://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }}/vector_${{ env.db_name }}"
+                      - name: POSTGRES_E2E_TEST_CONNINFO
+                        value: "postgresql://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }}/e2e_test_${{ env.db_name }}"
+                      - name: REDIS_HOST
+                        value: "localhost"
+                      - name: REDIS_URL
+                        value: "REDIS_URL=redis://localhost:6379/0"
+                      - name: REDIS_USER
+                        value: ""
+                      - name: REDIS_PASSWORD
+                        value: ""
+                      - name: REDIS_SSL
+                        value: "false"
+                      - name: DD_SERVICE
+                        value: working_example-python-migrations
+                restartPolicy: Never
+          EOF
+          kubectl wait --for=condition=ready --timeout=3m -l job-name=run-migrations-${{ env.env_name }} pod
+          echo "Job output:"
+          kubectl logs -f job.batch/run-migrations-${{ env.env_name }}
+          kubectl wait --for=condition=complete --timeout=3m job.batch/run-migrations-${{ env.env_name }}
+
+
+      - name:  Deploy to Kubernetes
+        shell: bash
+        run:   |
+               helm upgrade --install spin-test-env-${{ env.env_name }} .k8s/charts/spin-test-env \
+               --recreate-pods \
+               --kube-context=${{ secrets.TESTS_CLUSTER }} \
+               --set env_name=${{ env.env_name }} \
+               --set db_name=${{ env.db_name }} \
+               --set backend_image_name=${{ env.backend_image_name }} \
+               --set front_image_name=${{ env.front_image_name }} \
+               --set db_user=${{ secrets.DB_USER }} \
+               --set db_password="${{ secrets.DB_PASSWORD }}" \
+               --set db_host=${{ secrets.DB_HOST }} \
+               --set db_port=${{ secrets.DB_PORT }} \
+               --set pg_username=${{ secrets.PG_USERNAME }} \
+               --set pg_password=${{ secrets.PG_PASSWORD }} \
+               --set pg_host=${{ secrets.PG_HOST }} \
+               --set pg_port=${{ secrets.PG_PORT }} \
+               --set trainer_backend_image_name=${{ env.trainer_backend_image_name }} \
+               --set trainer_frontend_image_name=${{ env.trainer_frontend_image_name }} \
+               --set bt_project_name=${{ secrets.BRAINTRUST_PROJECT_NAME }} \
+               --set bt_api_key=${{ secrets.BRAINTRUST_API_KEY }} \
+               --set bt_user_id=${{ secrets.BRAINTRUST_USER_ID }} \
+               --set bt_snippet_id=${{ secrets.BRAINTRUST_SNIPPET_ID }} \
+
+      - name: send notification
+        uses: act10ns/slack@v2
+        if:   always()
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status:      ${{ job.status }}

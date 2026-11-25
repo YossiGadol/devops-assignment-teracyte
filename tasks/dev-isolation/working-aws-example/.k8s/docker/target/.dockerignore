@@ -1,0 +1,14 @@
+.venv/
+venv/
+.env
+.idea/
+.git*
+*.Dockerfile
+.k8s/
+storage/app/
+storage/framework/
+storage/logs/
+bootstrap/cache/
+vendor/
+node_modules/
+working_example-bdd284926531.json

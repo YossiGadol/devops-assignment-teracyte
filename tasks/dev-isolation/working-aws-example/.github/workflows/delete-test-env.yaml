@@ -1,0 +1,77 @@
+name: Cleanup Test Environment
+on:
+  workflow_dispatch:
+  delete:
+    branches:
+      - test/*
+jobs:
+  show-trigger:
+    runs-on: test-envs
+    steps:
+      - name: Show workflow trigger info
+        run:  |
+              echo "Event type: ${{ github.event_name }}"
+              echo "Ref type: ${{ github.event.ref_type }}"
+              echo "Branch name: ${{ github.event.ref }}"
+
+  cleanup:
+    runs-on: test-envs
+    if:      github.event.ref_type == 'branch' && startsWith(github.event.ref, 'test/')
+    needs:   show-trigger
+    permissions:
+      contents: read
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name:  Generate env name
+        shell: bash
+        run:   |
+               slugify() {
+                 echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'
+               }
+               branch=$(echo "${{ github.event.ref }}" | sed -e "s#refs/heads/##g")
+               env_name=$(slugify "${branch}")
+               db_name=$(echo "${env_name}" | sed 's/-/_/g')
+               echo "env_name=${env_name}" >> $GITHUB_ENV
+               echo "db_name=${db_name}" >> $GITHUB_ENV
+
+      - name:              Drop MySQL DB if it exists
+        continue-on-error: true
+        run:               mysql -e "drop database if exists ${{ env.db_name }};"
+
+      - name:              Drop Postgres DB if it exists
+        continue-on-error: true
+        run:               psql postgresql://${{ secrets.PG_USERNAME }}:${{ secrets.PG_PASSWORD }}@${{ secrets.PG_HOST }}:${{ secrets.PG_PORT }} -c "drop database if exists vector_${db_name} with (force);"
+
+      - name: Delete backend Docker image
+        run:  aws ecr batch-delete-image --repository-name ${{ secrets.DOCKER_BACKEND_IMAGE }} --image-ids imageTag=${{ env.env_name }}
+
+      - name: Delete frontend Docker image
+        run:  aws ecr batch-delete-image --repository-name ${{ secrets.DOCKER_FRONTEND_IMAGE }} --image-ids imageTag=${{ env.env_name }}
+
+      - name: Delete from Kubernetes
+        run:  helm uninstall spin-test-env-${{ env.env_name }} --ignore-not-found --kube-context=${{ secrets.TESTS_CLUSTER }}
+
+      - name:              Cleanup Kubernetes resources
+        shell:             bash
+        continue-on-error: true
+        run:               |
+                           RESOURCE_TYPES=(
+                             service deployment configmap secret ingresse job cronjob
+                           )
+                           for TYPE in "${RESOURCE_TYPES[@]}"; do
+                             kubectl get "$TYPE" --context=${{ secrets.TESTS_CLUSTER }} -A -o jsonpath='{range .items[*]}{.metadata.namespace}:{.metadata.name}{"\n"}{end}' 2>/dev/null | grep "${{ env.env_name }}$" | while read -r line; do
+                               kubectl delete "$TYPE" --context=${{ secrets.TESTS_CLUSTER }} -n "${line%%:*}" "${line##*:}" --ignore-not-found
+                             done
+                           done
+
+      - name: send notification
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status:      ${{ job.status }}
+        if:   always()

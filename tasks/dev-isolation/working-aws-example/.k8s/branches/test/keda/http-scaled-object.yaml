@@ -1,0 +1,49 @@
+kind:       HTTPScaledObject
+apiVersion: http.keda.sh/v1alpha1
+metadata:
+  name: working_example-test-scale-down-to-zeo
+spec:
+  hosts:
+    - test-scale-down-to-zeo.working-example.com
+  pathPrefixes:
+    - /
+  scaleTargetRef:
+    name:       working_example-test-scale-down-to-zeo
+    kind:       Deployment
+    apiVersion: apps/v1
+    service:    nginx-cluster-ip
+    port:       80
+  replicas:
+    min: 0
+    max: 1
+  scaledownPeriod: 300
+  scalingMetric:
+    requestRate:
+      granularity: 1s
+      targetValue: 1
+      window:      1m
+#---
+#kind:       HTTPScaledObject
+#apiVersion: http.keda.sh/v1alpha1
+#metadata:
+#  name: redis-test-scale-down-to-zeo
+#spec:
+#  hosts:
+#    - test-scale-down-to-zeo.working-example.com
+#  pathPrefixes:
+#    - /
+#  scaleTargetRef:
+#    name:       redis-test-scale-down-to-zeo
+#    kind:       Deployment
+#    apiVersion: apps/v1
+#    service:    nginx-cluster-ip
+#    port:       80
+#  replicas:
+#    min: 1
+#    max: 1
+#  scaledownPeriod: 30
+#  scalingMetric:
+#    requestRate:
+#      granularity: 1s
+#      targetValue: 1
+#      window:      1m

@@ -1,0 +1,36 @@
+apiVersion: eks.amazonaws.com/v1
+kind:       IngressClassParams
+metadata:
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: working_example-icp
+  name: working_example-icp
+spec:
+  scheme:        internet-facing
+  ipAddressType: ipv4
+  sslPolicy:     ELBSecurityPolicy-TLS13-1-2-2021-06
+  listeners:
+    - port:     443
+      protocol: HTTPS
+    - port:     80
+      protocol: HTTP
+  subnets:
+    ids:
+      - subnet-subnet-id
+      - subnet-subnet-id
+      - subnet-subnet-id
+  certificateARNs:
+    - arn:aws:acm:us-east-2:999999999999:certificate-id
+
+---
+apiVersion: networking.k8s.io/v1
+kind:       IngressClass
+metadata:
+  name: working_example-ic
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: "false"
+spec:
+  controller: eks.amazonaws.com/alb
+  parameters:
+    apiGroup: eks.amazonaws.com
+    kind:     IngressClassParams
+    name:     working_example-icp

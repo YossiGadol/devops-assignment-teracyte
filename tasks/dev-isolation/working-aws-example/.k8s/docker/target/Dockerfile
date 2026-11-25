@@ -1,0 +1,23 @@
+FROM 999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/python-backend:base-uv
+
+# Accept git information as build arguments
+ARG GIT_REV
+ARG GIT_COMMIT_HASH
+ARG GIT_COMMIT_SHORT_HASH
+ARG GIT_BRANCH
+ARG GIT_COMMIT_MESSAGE
+ARG GIT_COMMIT_DATE
+
+# Set environment variables for runtime access
+ENV GIT_REVISION=${GIT_REV}
+ENV GIT_COMMIT_HASH=${GIT_COMMIT_HASH}
+ENV GIT_COMMIT_SHORT_HASH=${GIT_COMMIT_SHORT_HASH}
+ENV GIT_BRANCH=${GIT_BRANCH}
+ENV GIT_COMMIT_MESSAGE=${GIT_COMMIT_MESSAGE}
+ENV GIT_COMMIT_DATE=${GIT_COMMIT_DATE}
+ENV DD_GIT_COMMIT_SHA=${GIT_COMMIT_HASH}
+ENV DD_GIT_REPOSITORY_URL=github.com/working_example-ai/working_example-python
+ENV DD_VERSION=${GIT_COMMIT_SHORT_HASH}
+
+COPY . .
+RUN uv sync --no-dev

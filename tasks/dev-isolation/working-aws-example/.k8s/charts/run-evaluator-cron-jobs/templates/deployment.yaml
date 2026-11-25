@@ -1,0 +1,95 @@
+apiVersion: batch/v1
+kind:       CronJob
+metadata:
+  name: evaluator-plan-generation-job
+spec:
+  suspend:                    false
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit:     1
+  concurrencyPolicy:          Forbid
+  schedule:                   "0 0 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          activeDeadlineSeconds: 7200
+          volumes:
+            - name: app-production
+              secret:
+                secretName: app-production
+                items:
+                  - key:  text
+                    path: text
+          containers:
+            - name:            working_example-python
+              image:           999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/python-backend:production
+              imagePullPolicy: IfNotPresent
+              command:
+                - /usr/local/bin/python3
+                - /app/evaluator/eval_plan_generation.py
+                - --prompt-ids
+                - {{ .Values.promptIds }}
+                - --storage-driver
+                - {{ .Values.storageDriver }}
+                - --config
+                - {{ .Values.evalConfigPath }}
+              env:
+                - name:  PYTHONPATH
+                  value: /app
+              volumeMounts:
+                - mountPath: /app/.env
+                  subPath:   text
+                  name:      app-production
+          restartPolicy:         Never
+      backoffLimit: 2
+---
+apiVersion: batch/v1
+kind:       CronJob
+metadata:
+  name: evaluator-quality-job
+spec:
+  suspend:                    false
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit:     1
+  concurrencyPolicy:          Forbid
+  schedule:                   "0 0 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          activeDeadlineSeconds: 7200
+          volumes:
+            - name: app-production
+              secret:
+                secretName: app-production
+                items:
+                  - key:  text
+                    path: text
+          containers:
+            - name:            working_example-python
+              image:           999999999999.dkr.ecr.us-east-2.amazonaws.com/working_example/python-backend:production
+              imagePullPolicy: IfNotPresent
+              command:
+                - /usr/local/bin/python3
+                - /app/crons/run_evaluator.py
+                - --prompt-ids
+                - {{ .Values.promptIds }}
+                - --storage-driver
+                - {{ .Values.storageDriver }}
+                - --output
+                - evaluator/output/run_prompt_output
+                - --config
+                - {{ .Values.runConfigPath }}
+                - --user-id
+                - "{{ .Values.userId }}"
+                - --snippet-id
+                - {{ .Values.snippetId }}
+              env:
+                - name:  PYTHONPATH
+                  value: /app
+              volumeMounts:
+                - mountPath: /app/.env
+                  subPath:   text
+                  name:      app-production
+          restartPolicy:         Never
+      backoffLimit: 2
