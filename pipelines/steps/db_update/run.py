@@ -21,8 +21,8 @@ def update_databases(experiment_id: str, results_dir: Path) -> int:
     import psycopg
     from pymongo import MongoClient
 
-    mongo_url = os.getenv("MONGO_URL", "mongodb://localhost:27018")
-    postgres_url = os.getenv("POSTGRES_URL", "postgresql://starter:starter@localhost:15432/experiments")
+    mongo_url = os.getenv("MONGO_URL", "mongodb://mongo:27017")
+    postgres_url = os.getenv("POSTGRES_URL", "postgresql://starter:starter@postgres:5432/experiments")
     with MongoClient(mongo_url) as mongo:
         collection = mongo["experiments"]["experiments"]
         experiment = collection.find_one({"_id": experiment_id})

@@ -25,7 +25,7 @@ def main() -> None:
     if not manifest_path.exists():
         generate_data(data_dir)
     manifest = json.loads(manifest_path.read_text())
-    mongo_url = os.getenv("MONGO_URL", "mongodb://localhost:27018")
+    mongo_url = os.getenv("MONGO_URL", "mongodb://mongo:27017")
     with MongoClient(mongo_url) as mongo:
         mongo["experiments"]["experiments"].update_one(
             {"_id": args.experiment_id},

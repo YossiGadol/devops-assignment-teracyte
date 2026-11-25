@@ -11,13 +11,13 @@ from celery import Celery
 
 celery_app = Celery(
     "experiment_api",
-    broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:16379/0"),
-    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:16379/1"),
+    broker=os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0"),
+    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/1"),
 )
 
 
 def read_results(experiment_id: str) -> list[dict]:
-    postgres_url = os.getenv("POSTGRES_URL", "postgresql://starter:starter@localhost:15432/experiments")
+    postgres_url = os.getenv("POSTGRES_URL", "postgresql://starter:starter@postgres:5432/experiments")
     with psycopg.connect(postgres_url) as connection:
         with connection.cursor() as cursor:
             cursor.execute("""

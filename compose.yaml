@@ -1,32 +1,113 @@
+volumes:
+  objects:
+    driver: local
+  model-lifecycle:
+    driver: local
 services:
   postgres:
-    image: postgres:16-alpine
+    container_name: teracyte-postgres
+    image:          postgres:16
     environment:
-      POSTGRES_USER: starter
-      POSTGRES_PASSWORD: starter
-      POSTGRES_DB: experiments
+      POSTGRES_USER:     ${POSTGRES_USER:-starter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-starter}
+      POSTGRES_DB:       ${POSTGRES_DB:-experiments}
     ports:
-      - "127.0.0.1:15432:5432"
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U starter -d experiments"]
+      test: [ "CMD-SHELL", "pg_isready -U starter -d experiments" ]
       interval: 2s
-      timeout: 2s
-      retries: 30
+      timeout:  2s
+      retries:  30
   mongo:
-    image: mongo:7
+    container_name: teracyte-mongo
+    image:          mongo:7
     ports:
-      - "127.0.0.1:27018:27017"
+      - "27017:27017"
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test: [ "CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok" ]
       interval: 3s
-      timeout: 3s
-      retries: 30
+      timeout:  3s
+      retries:  30
   redis:
-    image: redis:7-alpine
+    container_name: teracyte-redis
+    image:          redis:7
     ports:
-      - "127.0.0.1:16379:6379"
+      - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 2s
-      timeout: 2s
-      retries: 30
+      timeout:  2s
+      retries:  30
+
+  api:
+    container_name: teracyte-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    build:
+      context:    .
+      dockerfile: Dockerfile
+    image:          api-image
+    links:
+      - celery
+    volumes:
+      - objects:/app/data/objects
+      - model-lifecycle:/app/data/model-lifecycle
+    pre_start:
+      - command:
+          - uv
+          - run
+          - python
+          - -m
+          - pytest
+          - -q
+    ports:
+      - "8000:8000"
+    command:
+      - uv
+      - run
+      - uvicorn
+      - services.api.main:app
+      - --host
+      - 0.0.0.0
+      - --reload
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/openapi.json" ]
+      interval:     5s
+      timeout:      3s
+      retries:      10
+      start_period: 30s
+
+  celery:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    container_name: teracyte-celery
+    image:          api-image
+    volumes:
+      - objects:/app/data/objects
+      - model-lifecycle:/app/data/model-lifecycle
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - services.api.tasks.celery_app
+      - worker
+      - --loglevel=INFO
+    healthcheck:
+      test: [ "CMD-SHELL", "uv run celery -A services.api.tasks.celery_app inspect ping -d celery@$$HOSTNAME --timeout 5" ]
+      interval:     15s
+      timeout:      15s
+      retries:      5
+      start_period: 30s
+
+

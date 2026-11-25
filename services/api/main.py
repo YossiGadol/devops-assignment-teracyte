@@ -22,7 +22,7 @@ class ExperimentRequest(BaseModel):
 
 
 def experiments_collection():
-    mongo = MongoClient(os.getenv("MONGO_URL", "mongodb://localhost:27018"))
+    mongo = MongoClient(os.getenv("MONGO_URL", "mongodb://mongo:27017"))
     return mongo, mongo["experiments"]["experiments"]
 
 
