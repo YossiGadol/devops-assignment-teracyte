@@ -18,6 +18,8 @@
     * `--export` to queue the experiment for export.
 8. You can also view the results of the experiment in the terminal, using the command<br>`./show-results.sh [experiment_id]`<br> The default experiment_id (`demo-local`) will be used if none is provided.
 
+9. To run the analysis for a fresh experiment and verify its results end to end, execute:<br>`./verify-experiment.sh`<br>It exits nonzero on failure. See [verify-experiment/EVIDENCE.md](../verify-experiment/EVIDENCE.md) for options and exit codes.
+
 ### Shutting down the containers
 
 To shut down the containers, execute the command:<br>`./stop.sh`
