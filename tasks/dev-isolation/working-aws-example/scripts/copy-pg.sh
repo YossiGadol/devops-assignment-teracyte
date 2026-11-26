@@ -5,8 +5,6 @@ START_TIME=$(date +%s)
 sources=(
     "working_example-postgres-vector-dev.99999999999.us-east-2.rds.amazonaws.com|postgres|rVkXzTD8XxntVWrbZT6y|sb_dev"
 )
-# "working_example-postgres-vector-prod.cluster.us-east-2.rds.amazonaws.com|postgres|rVkXzTD8XxntVWrbZT6y|sb_prod"
-# "working_example-postgres-vector-staging.99999999999.us-east-2.rds.amazonaws.com|working_example_vector|syGwoZkGhQcX7rEZaeVJ|sb_staging"
 stmt_source="select datname \
 from pg_catalog.pg_database d \
 where datistemplate = false \

@@ -11,5 +11,4 @@ storage/logs/
 bootstrap/cache/
 vendor/
 node_modules/
-working_example-bdd284926531.json
 .coverage*

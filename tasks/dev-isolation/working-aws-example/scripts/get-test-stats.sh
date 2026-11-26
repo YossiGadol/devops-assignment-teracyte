@@ -19,7 +19,6 @@ for deployment in $deployments; do
     fi
 done
 bearer_token=bearer_token
-#TEST_CLUSTER_BOT_TOKEN
 echo "Users and their pushed branches:"
 echo "================================"
 for user in "${!user_counts[@]}"; do

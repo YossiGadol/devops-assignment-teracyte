@@ -1,1 +1,1 @@
-kubectl create secret  docker-registry regcrd --docker-server=999999999999.dkr.ecr.us-east-2.amazonaws.com --docker-username=AWS --docker-password="$(aws --profile working_example ecr get-login-password --region us-east-2)" --docker-email=yossi@working-example.com
+kubectl create secret  docker-registry regcrd --docker-server=999999999999.dkr.ecr.us-east-2.amazonaws.com --docker-username=AWS --docker-password="$(aws --profile working_example ecr get-login-password --region us-east-2)" --docker-email=email@working-example.com
